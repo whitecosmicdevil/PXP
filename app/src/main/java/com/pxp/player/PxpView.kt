@@ -46,10 +46,6 @@ class PxpView(ctx: Context) : View(ctx) {
     private var pxpGamesClicks = 0
     private var isGoldenTheme = false
 
-    // Animated Credits State
-    private var showCredits = false
-    private var creditsStart = 0L
-
     private val zones = listOf(
         "Device" to "",
         "India" to "Asia/Kolkata",
@@ -174,48 +170,8 @@ class PxpView(ctx: Context) : View(ctx) {
         if (t > menuStart) drawMenu(c, t, w, h)
         if (mode == 1) drawList(c, w, h)
         if (mode == 2 && photos.isNotEmpty()) drawPhoto(c, w, h)
-        if (showCredits) drawAnimatedCredits(c, w, h)
         drawMessage(c, w, h)
         postInvalidateOnAnimation()
-    }
-
-    private fun drawAnimatedCredits(c: Canvas, w: Float, h: Float) {
-        val animT = (System.nanoTime() - creditsStart) / 1e9f
-        val alpha = (animT * 2f).coerceIn(0f, 1f)
-        
-        // Dark translucent overlay
-        col(Color.BLACK, alpha * 0.9f)
-        c.drawRect(0f, 0f, w, h, paint)
-
-        // Pulsing glowing effect
-        val pulse = 1f + 0.04f * sin(animT * 4f).toFloat()
-
-        paint.textAlign = Paint.Align.CENTER
-        paint.typeface = logoFace
-
-        // Title with glow
-        paint.textSize = h * 0.07f * pulse
-        paint.setShadowLayer(h * 0.03f, 0f, 0f, Color.rgb(255, 215, 0))
-        col(Color.rgb(255, 255, 255), alpha)
-        c.drawText("✨ PXP SECRET CREDITS ✨", w / 2, h * 0.32f, paint)
-        paint.clearShadowLayer()
-
-        // Creator Name (Tanmay) in bright animated style
-        paint.typeface = uiFace
-        paint.textSize = h * 0.075f * pulse
-        col(Color.rgb(255, 200, 50), alpha)
-        c.drawText("Created by Tanmay 🚀", w / 2, h * 0.48f, paint)
-
-        // Subtitle
-        paint.textSize = h * 0.042f
-        col(Color.WHITE, alpha * 0.8f)
-        c.drawText("Portable Experience Player Engine", w / 2, h * 0.58f, paint)
-
-        // Return hint blinking
-        val hintAlpha = ((sin(animT * 6f) + 1f) / 2f * 0.5f + 0.5f) * alpha
-        col(Color.WHITE, hintAlpha)
-        paint.textSize = h * 0.035f
-        c.drawText("Press 'B' or Tap anywhere to return", w / 2, h * 0.82f, paint)
     }
 
     private fun drawBackground(c: Canvas, t: Float, w: Float, h: Float) {
@@ -415,20 +371,38 @@ class PxpView(ctx: Context) : View(ctx) {
     private fun drawMessage(c: Canvas, w: Float, h: Float) {
         val m = msg
         if (m == null || System.currentTimeMillis() >= msgUntil) return
-        col(Color.BLACK, 0.8f)
-        c.drawRoundRect(
-            RectF(w * 0.2f, h * 0.36f, w * 0.8f, h * 0.64f),
-            h * 0.03f, h * 0.03f, paint
-        )
+        
+        // Sleek PSP-style slim notification pill at the bottom center
+        val boxWidth = w * 0.52f
+        val boxHeight = h * 0.13f
+        val left = (w - boxWidth) / 2f
+        val top = h * 0.82f - boxHeight / 2f
+        
+        // Semi-transparent dark background
+        col(Color.rgb(15, 25, 40), 0.9f)
+        c.drawRoundRect(RectF(left, top, left + boxWidth, top + boxHeight), h * 0.02f, h * 0.02f, paint)
+        
+        // Subtle clean border
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 2f
+        col(Color.WHITE, 0.35f)
+        c.drawRoundRect(RectF(left, top, left + boxWidth, top + boxHeight), h * 0.02f, h * 0.02f, paint)
+        paint.style = Paint.Style.FILL
+        
         col(Color.WHITE, 1f)
         paint.typeface = uiFace
         paint.textAlign = Paint.Align.CENTER
         val lines = m.split("\n")
-        paint.textSize = h * 0.055f
-        c.drawText(lines[0], w / 2, h * 0.49f, paint)
-        if (lines.size > 1) {
-            paint.textSize = h * 0.04f
-            c.drawText(lines[1], w / 2, h * 0.57f, paint)
+        
+        if (lines.size == 1) {
+            paint.textSize = h * 0.038f
+            c.drawText(lines[0], w / 2, top + boxHeight * 0.58f, paint)
+        } else {
+            paint.textSize = h * 0.035f
+            c.drawText(lines[0], w / 2, top + boxHeight * 0.42f, paint)
+            paint.textSize = h * 0.03f
+            col(Color.WHITE, 0.75f)
+            c.drawText(lines[1], w / 2, top + boxHeight * 0.76f, paint)
         }
     }
 
@@ -515,7 +489,6 @@ class PxpView(ctx: Context) : View(ctx) {
     }
 
     private fun moveH(d: Int) {
-        if (showCredits) return
         when (mode) {
             0 -> {
                 val n = cat + d
@@ -542,7 +515,6 @@ class PxpView(ctx: Context) : View(ctx) {
     }
 
     private fun moveV(d: Int) {
-        if (showCredits) return
         when (mode) {
             0 -> {
                 val n = item + d
@@ -567,11 +539,6 @@ class PxpView(ctx: Context) : View(ctx) {
     }
 
     private fun confirm() {
-        if (showCredits) {
-            showCredits = false
-            Sfx.click()
-            return
-        }
         when (mode) {
             1 -> {
                 Sfx.ok()
@@ -601,14 +568,12 @@ class PxpView(ctx: Context) : View(ctx) {
                     label == "Photo Viewer" -> openPhotos()
                     label.startsWith("Time Zone") -> cycleZone()
                     
-                    // Easter Egg 1: System Settings par 3 baar click karne par Animated Credits (Tanmay)
+                    // Easter Egg 1: System Settings par 3 baar click karne par Tanmay credits
                     label == "System Settings" -> {
                         systemSettingsClicks++
                         if (systemSettingsClicks >= 3) {
                             systemSettingsClicks = 0
-                            showCredits = true
-                            creditsStart = System.nanoTime()
-                            Sfx.ok()
+                            showMsg("PXP CREDITS:\nCreated by Tanmay! 🚀")
                         } else {
                             showMsg("System Settings active.")
                         }
@@ -635,11 +600,6 @@ class PxpView(ctx: Context) : View(ctx) {
     }
 
     fun goBack(): Boolean {
-        if (showCredits) {
-            showCredits = false
-            Sfx.click()
-            return true
-        }
         if (mode == 0) return false
         mode = 0
         photoBmp = null
@@ -649,11 +609,6 @@ class PxpView(ctx: Context) : View(ctx) {
 
     fun onPadKey(code: Int): Boolean {
         if (!ready()) return false
-        if (showCredits) {
-            showCredits = false
-            Sfx.click()
-            return true
-        }
         return when (code) {
             KeyEvent.KEYCODE_DPAD_LEFT -> { moveH(-1); true }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { moveH(1); true }
@@ -669,11 +624,6 @@ class PxpView(ctx: Context) : View(ctx) {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!ready()) return true
-        if (showCredits && e.actionMasked == MotionEvent.ACTION_UP) {
-            showCredits = false
-            Sfx.click()
-            return true
-        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x
