@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:icon="@mipmap/ic_launcher"
         android:label="PXP"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
