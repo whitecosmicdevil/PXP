@@ -61,4 +61,75 @@ class MainActivity : Activity() {
     }
 
     private fun open(e: Entry) {
-        if (e.type
+        if (e.type == T_GAME) {
+            launchGame(e.uri)
+            return
+        }
+        val mime = if (e.type == T_VIDEO) "video/*" else "audio/*"
+        try {
+            val i = Intent(Intent.ACTION_VIEW)
+            i.setDataAndType(e.uri, mime)
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(i)
+        } catch (ex: Exception) {
+            pxp.showMsg("No player found.\n(PXP-9002)")
+        }
+    }
+
+    private fun launchGame(uri: Uri) {
+        val targets = listOf("org.ppsspp.ppsspp", "org.ppsspp.ppssppgold")
+        for (pkg in targets) {
+            try {
+                val i = Intent(Intent.ACTION_VIEW)
+                i.setClassName(pkg, "org.ppsspp.ppsspp.PpssppActivity")
+                i.data = uri
+                i.putExtra("org.ppsspp.ppsspp.Shortcuts", uri.toString())
+                i.addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                )
+                startActivity(i)
+                return
+            } catch (ex: Exception) {
+            }
+        }
+        pxp.showMsg("Game engine not installed.\n(PXP-9001)")
+    }
+
+    private fun scan(uri: Uri) {
+        Thread {
+            val found = ArrayList<Entry>()
+            try {
+                walk(uri, DocumentsContract.getTreeDocumentId(uri), found, 0)
+            } catch (e: Exception) {
+            }
+            runOnUiThread { pxp.setLibrary(found) }
+        }.start()
+    }
+
+    private fun walk(tree: Uri, docId: String, out: MutableList<Entry>, depth: Int) {
+        if (depth > 4 || out.size >= 600) return
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
+        val cols = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+        val cur = contentResolver.query(children, cols, null, null, null) ?: return
+        cur.use { cursor ->
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(0)
+                val name = cursor.getString(1) ?: continue
+                val mime = cursor.getString(2)
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    walk(tree, id, out, depth + 1)
+                } else {
+                    val type = typeOf(name)
+                    if (type >= 0) {
+                        out.add(Entry(name, DocumentsContract.buildDocumentUriUsingTree(tree, id), type))
+                    }
+                }
+            }
+        }
+    }
+}
