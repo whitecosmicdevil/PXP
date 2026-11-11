@@ -35,11 +35,24 @@ class PxpView(ctx: Context) : View(ctx) {
     private val wave = Path()
     private val prefs = ctx.getSharedPreferences("pxp", Context.MODE_PRIVATE)
     private val battery = Battery(ctx)
+    private val updater = UpdateChecker(ctx)
     private val clockFmt = SimpleDateFormat("dd/MM  hh:mm a", Locale.getDefault())
     private val uiFace = Typeface.create("sans-serif-light", Typeface.NORMAL)
     private val logoFace = Typeface.create("sans-serif-thin", Typeface.NORMAL)
     private var bg: Shader? = null
     private val menuStart = 6.2f
+
+    private val themeNames = listOf("Blue", "Gold", "Grey", "Red")
+    private val themeTop = intArrayOf(
+        Color.rgb(8, 30, 95), Color.rgb(90, 60, 5),
+        Color.rgb(35, 38, 45), Color.rgb(80, 5, 15)
+    )
+    private val themeBottom = intArrayOf(
+        Color.rgb(70, 160, 215), Color.rgb(235, 190, 70),
+        Color.rgb(150, 155, 165), Color.rgb(225, 70, 70)
+    )
+    private var themeIdx = 0
+    private val soundNames = listOf("Classic", "Digital")
 
     private val zones = listOf(
         "Device" to "",
@@ -57,7 +70,7 @@ class PxpView(ctx: Context) : View(ctx) {
 
     private val cats = listOf("Settings", "Photo", "Music", "Video", "Game", "Network")
     private val items = listOf<MutableList<String>>(
-        mutableListOf("Time Zone", "System Settings", "Theme Settings", "Sound Settings"),
+        mutableListOf("Time Zone", "System Settings", "Theme", "Sound"),
         mutableListOf("Memory Stick", "Photo Viewer"),
         mutableListOf("Memory Stick", "Music Player"),
         mutableListOf("Memory Stick", "Video Player"),
@@ -68,7 +81,10 @@ class PxpView(ctx: Context) : View(ctx) {
     init {
         paint.isFilterBitmap = true
         zi = prefs.getInt("zone", 0).coerceIn(0, zones.size - 1)
+        themeIdx = prefs.getInt("theme", 0).coerceIn(0, themeNames.size - 1)
+        Sfx.style = prefs.getInt("sound", 0).coerceIn(0, soundNames.size - 1)
         applyZone()
+        applyLabels()
     }
 
     private var cat = 4
@@ -92,6 +108,7 @@ class PxpView(ctx: Context) : View(ctx) {
     private var photoBmp: Bitmap? = null
     private var photoFail = false
     private var loadToken = 0
+    private var sysInfo: List<Pair<String, String>> = emptyList()
 
     private fun applyZone() {
         val id = zones[zi].second
@@ -99,10 +116,38 @@ class PxpView(ctx: Context) : View(ctx) {
         items[0][0] = "Time Zone: " + zones[zi].first
     }
 
+    private fun applyLabels() {
+        items[0][2] = "Theme: " + themeNames[themeIdx]
+        items[0][3] = "Sound: " + soundNames[Sfx.style]
+    }
+
+    private fun buildBg() {
+        val h = height.toFloat()
+        if (h <= 0f) return
+        bg = LinearGradient(
+            0f, 0f, 0f, h, themeTop[themeIdx], themeBottom[themeIdx],
+            Shader.TileMode.CLAMP
+        )
+    }
+
     private fun cycleZone() {
         zi = (zi + 1) % zones.size
         prefs.edit().putInt("zone", zi).apply()
         applyZone()
+    }
+
+    private fun cycleTheme() {
+        themeIdx = (themeIdx + 1) % themeNames.size
+        prefs.edit().putInt("theme", themeIdx).apply()
+        buildBg()
+        applyLabels()
+    }
+
+    private fun cycleSound() {
+        Sfx.style = (Sfx.style + 1) % soundNames.size
+        prefs.edit().putInt("sound", Sfx.style).apply()
+        applyLabels()
+        Sfx.click()
     }
 
     fun setLibrary(list: List<Entry>) {
@@ -133,11 +178,7 @@ class PxpView(ctx: Context) : View(ctx) {
     private fun ready() = (System.nanoTime() - start) / 1e9f >= menuStart + 0.4f
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
-        bg = LinearGradient(
-            0f, 0f, 0f, h.toFloat(),
-            Color.rgb(8, 30, 95), Color.rgb(70, 160, 215),
-            Shader.TileMode.CLAMP
-        )
+        buildBg()
     }
 
     private fun col(color: Int, a: Float) {
@@ -158,6 +199,14 @@ class PxpView(ctx: Context) : View(ctx) {
         if (t > menuStart) drawMenu(c, t, w, h)
         if (mode == 1) drawList(c, w, h)
         if (mode == 2 && photos.isNotEmpty()) drawPhoto(c, w, h)
+        if (mode == 3) {
+            paint.typeface = uiFace
+            drawUpdateScreen(c, paint, w, h, updater)
+        }
+        if (mode == 4) {
+            paint.typeface = uiFace
+            drawSystemScreen(c, paint, w, h, sysInfo)
+        }
         drawMessage(c, w, h)
         postInvalidateOnAnimation()
     }
@@ -469,7 +518,7 @@ class PxpView(ctx: Context) : View(ctx) {
                     Sfx.click()
                 }
             }
-            1 -> if (d < 0) {
+            1, 3, 4 -> if (d < 0) {
                 mode = 0
                 Sfx.click()
             }
@@ -516,17 +565,33 @@ class PxpView(ctx: Context) : View(ctx) {
                 if (e.type == T_GAME) showMsg("Now loading...")
                 onOpen?.invoke(e)
             }
-            2 -> {}
-            else -> {
+            2, 4 -> {}
+            3 -> {
                 Sfx.ok()
+                if (updater.state == 2) onOpenWeb?.invoke(RELEASES_URL) else updater.check()
+            }
+            else -> {
                 val label = items[cat][item]
+                if (!label.startsWith("Sound")) Sfx.ok()
                 when {
                     label == "Memory Stick" -> onPickFolder?.invoke()
                     label == "PXP Games" -> openList(T_GAME, "PXP Games")
                     label == "Video Player" -> openList(T_VIDEO, "Videos")
                     label == "Music Player" -> openList(T_MUSIC, "Music")
                     label == "Photo Viewer" -> openPhotos()
+                    label == "Network Update" -> {
+                        mode = 3
+                        updater.check()
+                    }
                     label == "Browser" -> onOpenWeb?.invoke("https://duckduckgo.com")
+                    label == "System Settings" -> {
+                        sysInfo = buildSystemInfo(
+                            context, battery, library.count { it.type == T_GAME }, cardSet
+                        )
+                        mode = 4
+                    }
+                    label.startsWith("Theme") -> cycleTheme()
+                    label.startsWith("Sound") -> cycleSound()
                     label.startsWith("Time Zone") -> cycleZone()
                     else -> showMsg("This feature is not ready yet.")
                 }
