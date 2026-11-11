@@ -3,6 +3,11 @@
     <application
         android:label="PXP"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        
+        <activity
+            android:name=".BrowserActivity"
+            android:configChanges="orientation|screenSize" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
