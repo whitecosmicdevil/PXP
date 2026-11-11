@@ -79,7 +79,8 @@ class MainActivity : Activity() {
 
     private fun openWebUrl(url: String) {
         try {
-            val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            val i = Intent(this, BrowserActivity::class.java)
+            i.putExtra("url", url)
             startActivity(i)
         } catch (e: Exception) {
             pxp.showMsg("Could not open browser.\n(PXP-9003)")
