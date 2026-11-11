@@ -15,6 +15,7 @@ const val RELEASES_URL = "https://github.com/whitecosmicdevil/PXP/releases"
 class UpdateChecker(private val ctx: Context) {
     var state = 0
     var latest = ""
+    var detail = ""
     val current: String = try {
         ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
     } catch (e: Exception) {
@@ -26,22 +27,32 @@ class UpdateChecker(private val ctx: Context) {
     fun check() {
         state = 0
         latest = ""
+        detail = ""
         val my = ++token
         Thread {
             var text: String? = null
+            var err = ""
             try {
                 val conn = URL(UPDATE_URL).openConnection() as HttpURLConnection
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
-                text = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                val code = conn.responseCode
+                if (code != 200) {
+                    err = "HTTP $code"
+                } else {
+                    text = conn.inputStream.bufferedReader().use { it.readText() }.trim()
+                }
                 conn.disconnect()
             } catch (e: Exception) {
+                err = e.javaClass.simpleName
             }
             val res = text
+            val why = err
             ui.post {
                 if (my == token) {
                     if (res == null || res.isEmpty() || res.length > 20) {
                         state = 3
+                        detail = if (why.isEmpty()) "Bad reply" else why
                     } else {
                         latest = res
                         state = if (isNewer(res, current)) 2 else 1
@@ -88,7 +99,7 @@ fun drawUpdateScreen(c: Canvas, p: Paint, w: Float, h: Float, u: UpdateChecker) 
         0 -> "Checking for updates..."
         1 -> "Your PXP is up to date."
         2 -> "A new version is available."
-        else -> "Could not connect.\n(PXP-9101)"
+        else -> "Could not connect.\n(PXP-9101) " + u.detail
     }
     p.color = when (u.state) {
         1 -> Color.rgb(140, 255, 160)
