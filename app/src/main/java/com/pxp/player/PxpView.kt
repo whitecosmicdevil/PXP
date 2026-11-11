@@ -109,6 +109,8 @@ class PxpView(ctx: Context) : View(ctx) {
     private var photoFail = false
     private var loadToken = 0
     private var sysInfo: List<Pair<String, String>> = emptyList()
+    private var eggBuf = ""
+    private var eggStart = 0L
 
     private fun applyZone() {
         val id = zones[zi].second
@@ -148,6 +150,17 @@ class PxpView(ctx: Context) : View(ctx) {
         prefs.edit().putInt("sound", Sfx.style).apply()
         applyLabels()
         Sfx.click()
+    }
+
+    private fun trackEgg(ch: Char) {
+        if (mode != 0) return
+        eggBuf = (eggBuf + ch).takeLast(8)
+        if (eggBuf == "UUDDLRLR") {
+            eggBuf = ""
+            mode = 5
+            eggStart = System.nanoTime()
+            Sfx.egg()
+        }
     }
 
     fun setLibrary(list: List<Entry>) {
@@ -206,6 +219,10 @@ class PxpView(ctx: Context) : View(ctx) {
         if (mode == 4) {
             paint.typeface = uiFace
             drawSystemScreen(c, paint, w, h, sysInfo)
+        }
+        if (mode == 5) {
+            paint.typeface = uiFace
+            drawEgg(c, paint, w, h, (System.nanoTime() - eggStart) / 1e9f)
         }
         drawMessage(c, w, h)
         postInvalidateOnAnimation()
@@ -518,7 +535,7 @@ class PxpView(ctx: Context) : View(ctx) {
                     Sfx.click()
                 }
             }
-            1, 3, 4 -> if (d < 0) {
+            1, 3, 4, 5 -> if (d < 0) {
                 mode = 0
                 Sfx.click()
             }
@@ -565,7 +582,7 @@ class PxpView(ctx: Context) : View(ctx) {
                 if (e.type == T_GAME) showMsg("Now loading...")
                 onOpen?.invoke(e)
             }
-            2, 4 -> {}
+            2, 4, 5 -> {}
             3 -> {
                 Sfx.ok()
                 if (updater.state == 2) onOpenWeb?.invoke(RELEASES_URL) else updater.check()
@@ -610,10 +627,10 @@ class PxpView(ctx: Context) : View(ctx) {
     fun onPadKey(code: Int): Boolean {
         if (!ready()) return false
         return when (code) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> { moveH(-1); true }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> { moveH(1); true }
-            KeyEvent.KEYCODE_DPAD_UP -> { moveV(-1); true }
-            KeyEvent.KEYCODE_DPAD_DOWN -> { moveV(1); true }
+            KeyEvent.KEYCODE_DPAD_LEFT -> { trackEgg('L'); moveH(-1); true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { trackEgg('R'); moveH(1); true }
+            KeyEvent.KEYCODE_DPAD_UP -> { trackEgg('U'); moveV(-1); true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { trackEgg('D'); moveV(1); true }
             KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER -> { confirm(); true }
@@ -634,8 +651,10 @@ class PxpView(ctx: Context) : View(ctx) {
                 val dy = e.y - downY
                 val th = width * 0.04f
                 if (abs(dx) > th && abs(dx) > abs(dy)) {
+                    trackEgg(if (dx < 0) 'L' else 'R')
                     moveH(if (dx < 0) 1 else -1)
                 } else if (abs(dy) > th) {
+                    trackEgg(if (dy < 0) 'U' else 'D')
                     moveV(if (dy < 0) 1 else -1)
                 } else {
                     confirm()
