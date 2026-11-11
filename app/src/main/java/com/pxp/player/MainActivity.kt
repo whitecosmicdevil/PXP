@@ -76,6 +76,15 @@ class MainActivity : Activity() {
         }
     }
 
+    fun openWebUrl(url: String) {
+        try {
+            val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(i)
+        } catch (e: Exception) {
+            pxp.showMsg("Could not open browser.\n(PXP-9003)")
+        }
+    }
+
     private fun launchGame(uri: Uri) {
         val targets = listOf("org.ppsspp.ppsspp", "org.ppsspp.ppssppgold")
         for (pkg in targets) {
