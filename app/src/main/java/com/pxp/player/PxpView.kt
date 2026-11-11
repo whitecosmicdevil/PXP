@@ -1,18 +1,21 @@
 package com.pxp.player
 
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
-import android.os.BatteryManager
+import android.media.ExifInterface
+import android.net.Uri
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import java.text.SimpleDateFormat
@@ -24,36 +27,48 @@ import kotlin.math.sin
 
 class PxpView(ctx: Context) : View(ctx) {
     var onPickFolder: (() -> Unit)? = null
+    var onOpen: ((Entry) -> Unit)? = null
 
     private val start = System.nanoTime()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val wave = Path()
-    private val clockFmt = SimpleDateFormat("dd/MM  hh:mm a", Locale.ENGLISH)
+    private val prefs = ctx.getSharedPreferences("pxp", Context.MODE_PRIVATE)
+    private val battery = Battery(ctx)
+    private val clockFmt = SimpleDateFormat("dd/MM  hh:mm a", Locale.getDefault())
     private val uiFace = Typeface.create("sans-serif-light", Typeface.NORMAL)
     private val logoFace = Typeface.create("sans-serif-thin", Typeface.NORMAL)
     private var bg: Shader? = null
     private val menuStart = 6.2f
 
-    private val zoneIds = listOf(
-        "", "Asia/Kolkata", "UTC", "Europe/London", "Europe/Paris", "Asia/Dubai",
-        "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney",
-        "America/New_York", "America/Chicago", "America/Los_Angeles"
+    private val zones = listOf(
+        "Device" to "",
+        "India" to "Asia/Kolkata",
+        "UTC" to "UTC",
+        "London" to "Europe/London",
+        "Dubai" to "Asia/Dubai",
+        "Singapore" to "Asia/Singapore",
+        "Tokyo" to "Asia/Tokyo",
+        "Sydney" to "Australia/Sydney",
+        "New York" to "America/New_York",
+        "Los Angeles" to "America/Los_Angeles"
     )
-    private val zoneNames = listOf(
-        "Device", "India (IST)", "UTC", "London", "Paris", "Dubai",
-        "Singapore", "Tokyo", "Sydney", "New York", "Chicago", "Los Angeles"
-    )
-    private var zoneIdx = ctx.getSharedPreferences("pxp", Context.MODE_PRIVATE).getInt("zone", 0)
+    private var zi = 0
 
     private val cats = listOf("Settings", "Photo", "Music", "Video", "Game", "Network")
-    private val items: List<MutableList<String>> = listOf(
-        mutableListOf("Time Zone", "Theme Settings", "Sound Settings"),
+    private val items = listOf<MutableList<String>>(
+        mutableListOf("Time Zone", "System Settings", "Theme Settings", "Sound Settings"),
         mutableListOf("Memory Stick", "Photo Viewer"),
         mutableListOf("Memory Stick", "Music Player"),
         mutableListOf("Memory Stick", "Video Player"),
         mutableListOf("Memory Stick", "PXP Games"),
         mutableListOf("Network Update", "Browser")
     )
+
+    init {
+        paint.isFilterBitmap = true
+        zi = prefs.getInt("zone", 0).coerceIn(0, zones.size - 1)
+        applyZone()
+    }
 
     private var cat = 4
     private var item = 0
@@ -65,52 +80,56 @@ class PxpView(ctx: Context) : View(ctx) {
     private var msg: String? = null
     private var msgUntil = 0L
 
-    private var games: List<String> = emptyList()
+    private var library: List<Entry> = emptyList()
     private var cardSet = false
-    private var showList = false
+    private var mode = 0
+    private var listEntries: List<Entry> = emptyList()
+    private var listTitle = ""
     private var listSel = 0
+    private var photos: List<Entry> = emptyList()
+    private var photoIdx = 0
+    private var photoBmp: Bitmap? = null
+    private var photoFail = false
+    private var loadToken = 0
 
-    private var batPct = 100
-    private var batCharging = false
-    private var batCheck = 0L
+    private fun applyZone() {
+        val id = zones[zi].second
+        clockFmt.timeZone = if (id.isEmpty()) TimeZone.getDefault() else TimeZone.getTimeZone(id)
+        items[0][0] = "Time Zone: " + zones[zi].first
+    }
 
-    init {
+    private fun cycleZone() {
+        zi = (zi + 1) % zones.size
+        prefs.edit().putInt("zone", zi).apply()
         applyZone()
     }
 
-    private fun applyZone() {
-        clockFmt.timeZone = if (zoneIdx == 0) TimeZone.getDefault()
-        else TimeZone.getTimeZone(zoneIds[zoneIdx])
-        items[0][0] = "Time Zone: " + zoneNames[zoneIdx]
-    }
-
-    private fun updateBattery() {
-        val now = System.currentTimeMillis()
-        if (now - batCheck < 3000) return
-        batCheck = now
-        val i = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return
-        val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-        val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
-        val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-        if (level >= 0 && scale > 0) batPct = level * 100 / scale
-        batCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == BatteryManager.BATTERY_STATUS_FULL
-    }
-
-    fun setGames(list: List<String>) {
-        games = list.sorted()
+    fun setLibrary(list: List<Entry>) {
+        library = list
         cardSet = true
-        listSel = 0
         val t = (System.nanoTime() - start) / 1e9f
-        if (list.isNotEmpty() && t > menuStart) {
-            showMsg("${list.size} games found")
+        if (t > menuStart) {
+            if (list.isEmpty()) {
+                showMsg("Nothing found in that folder.\n(PXP-8002)")
+            } else {
+                val g = list.count { it.type == T_GAME }
+                val p = list.count { it.type == T_PHOTO }
+                val v = list.count { it.type == T_VIDEO }
+                val m = list.count { it.type == T_MUSIC }
+                showMsg("$g games, $p photos\n$v videos, $m songs")
+            }
         }
     }
 
-    private fun showMsg(m: String) {
+    fun showMsg(m: String) {
         msg = m
-        msgUntil = System.currentTimeMillis() + 2200
+        msgUntil = System.currentTimeMillis() + 2600
     }
+
+    private fun of(type: Int): List<Entry> =
+        library.filter { it.type == type }.sortedBy { it.name.lowercase() }
+
+    private fun ready() = (System.nanoTime() - start) / 1e9f >= menuStart + 0.4f
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         bg = LinearGradient(
@@ -136,7 +155,8 @@ class PxpView(ctx: Context) : View(ctx) {
         drawBackground(c, t, w, h)
         drawBoot(c, t, w, h)
         if (t > menuStart) drawMenu(c, t, w, h)
-        if (showList) drawList(c, w, h)
+        if (mode == 1) drawList(c, w, h)
+        if (mode == 2 && photos.isNotEmpty()) drawPhoto(c, w, h)
         drawMessage(c, w, h)
         postInvalidateOnAnimation()
     }
@@ -215,48 +235,6 @@ class PxpView(ctx: Context) : View(ctx) {
         }
     }
 
-    private fun drawStatus(c: Canvas, w: Float, h: Float, a: Float) {
-        updateBattery()
-        paint.typeface = uiFace
-        paint.textAlign = Paint.Align.RIGHT
-        paint.textSize = h * 0.045f
-        col(Color.WHITE, a)
-        val clock = clockFmt.format(Date())
-        val right = w * 0.96f
-        val y = h * 0.09f
-        c.drawText(clock, right, y, paint)
-        val tw = paint.measureText(clock)
-        val pctText = batPct.toString() + "%"
-        val pctRight = right - tw - h * 0.05f
-        c.drawText(pctText, pctRight, y, paint)
-        val pw = paint.measureText(pctText)
-        val tip = h * 0.012f
-        val bodyRight = pctRight - pw - h * 0.025f - tip
-        val bw = h * 0.1f
-        val bh = h * 0.05f
-        val cyy = y - h * 0.016f
-        val color = when {
-            batCharging -> Color.rgb(120, 255, 140)
-            batPct <= 20 -> Color.rgb(255, 110, 110)
-            else -> Color.WHITE
-        }
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = h * 0.006f
-        col(color, a)
-        c.drawRoundRect(
-            RectF(bodyRight - bw, cyy - bh / 2, bodyRight, cyy + bh / 2),
-            bh * 0.2f, bh * 0.2f, paint
-        )
-        paint.style = Paint.Style.FILL
-        c.drawRect(bodyRight, cyy - bh * 0.2f, bodyRight + tip, cyy + bh * 0.2f, paint)
-        val pad = h * 0.01f
-        val fillW = (bw - pad * 2) * batPct / 100f
-        c.drawRect(
-            bodyRight - bw + pad, cyy - bh / 2 + pad,
-            bodyRight - bw + pad + fillW, cyy + bh / 2 - pad, paint
-        )
-    }
-
     private fun drawMenu(c: Canvas, t: Float, w: Float, h: Float) {
         val xA = ((t - menuStart) / 1f).coerceIn(0f, 1f)
         catAnim += (cat - catAnim) * 0.2f
@@ -309,7 +287,9 @@ class PxpView(ctx: Context) : View(ctx) {
             c.drawText(list[j], selX + s * 0.8f, y + h * 0.018f, paint)
         }
 
-        drawStatus(c, w, h, xA)
+        battery.update()
+        paint.typeface = uiFace
+        drawStatusBar(c, paint, w, h, xA, battery, clockFmt.format(Date()))
     }
 
     private fun drawList(c: Canvas, w: Float, h: Float) {
@@ -319,11 +299,11 @@ class PxpView(ctx: Context) : View(ctx) {
         paint.textAlign = Paint.Align.LEFT
         paint.textSize = h * 0.06f
         col(Color.WHITE, 1f)
-        c.drawText("PXP Games", w * 0.08f, h * 0.15f, paint)
+        c.drawText(listTitle, w * 0.08f, h * 0.15f, paint)
         val first = (listSel - 2).coerceAtLeast(0)
         for (r in 0 until 6) {
             val idx = first + r
-            if (idx >= games.size) break
+            if (idx >= listEntries.size) break
             val y = h * 0.28f + r * h * 0.11f
             if (idx == listSel) {
                 col(Color.WHITE, 0.25f)
@@ -334,14 +314,45 @@ class PxpView(ctx: Context) : View(ctx) {
             }
             col(Color.WHITE, if (idx == listSel) 1f else 0.6f)
             paint.textSize = h * 0.05f
-            val full = games[idx]
+            val full = listEntries[idx].name
             val name = if (full.length > 40) full.substring(0, 40) + "..." else full
             c.drawText(name, w * 0.1f, y, paint)
         }
         paint.textAlign = Paint.Align.RIGHT
         paint.textSize = h * 0.04f
         col(Color.WHITE, 0.8f)
-        c.drawText("${listSel + 1} / ${games.size}", w * 0.94f, h * 0.15f, paint)
+        c.drawText("${listSel + 1} / ${listEntries.size}", w * 0.94f, h * 0.15f, paint)
+    }
+
+    private fun drawPhoto(c: Canvas, w: Float, h: Float) {
+        c.drawColor(Color.BLACK)
+        val b = photoBmp
+        paint.typeface = uiFace
+        if (b != null) {
+            val sc = minOf(w / b.width, h / b.height)
+            val dw = b.width * sc
+            val dh = b.height * sc
+            col(Color.WHITE, 1f)
+            c.drawBitmap(
+                b, null,
+                RectF((w - dw) / 2, (h - dh) / 2, (w + dw) / 2, (h + dh) / 2),
+                paint
+            )
+        } else {
+            col(Color.WHITE, 0.8f)
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = h * 0.05f
+            c.drawText(if (photoFail) "Cannot open this photo." else "Loading...", w / 2, h * 0.5f, paint)
+        }
+        col(Color.BLACK, 0.55f)
+        c.drawRect(0f, h * 0.92f, w, h, paint)
+        col(Color.WHITE, 1f)
+        paint.textSize = h * 0.04f
+        paint.textAlign = Paint.Align.LEFT
+        val nm = photos[photoIdx].name
+        c.drawText(if (nm.length > 36) nm.substring(0, 36) + "..." else nm, w * 0.04f, h * 0.975f, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        c.drawText("${photoIdx + 1} / ${photos.size}", w * 0.96f, h * 0.975f, paint)
     }
 
     private fun drawMessage(c: Canvas, w: Float, h: Float) {
@@ -364,9 +375,188 @@ class PxpView(ctx: Context) : View(ctx) {
         }
     }
 
+    private fun decode(uri: Uri): Bitmap? {
+        try {
+            val cr = context.contentResolver
+            val o1 = BitmapFactory.Options()
+            o1.inJustDecodeBounds = true
+            cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o1) }
+            var s = 1
+            while (o1.outWidth / s > 2400 || o1.outHeight / s > 2400) s *= 2
+            val o2 = BitmapFactory.Options()
+            o2.inSampleSize = s
+            val raw = cr.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o2) }
+                ?: return null
+            var rot = 0
+            try {
+                cr.openInputStream(uri)?.use {
+                    val ex = ExifInterface(it)
+                    rot = when (ex.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)) {
+                        ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                        else -> 0
+                    }
+                }
+            } catch (e: Exception) {
+            }
+            if (rot == 0) return raw
+            val m = Matrix()
+            m.postRotate(rot.toFloat())
+            return Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun loadPhoto() {
+        val uri = photos[photoIdx].uri
+        val token = ++loadToken
+        photoBmp = null
+        photoFail = false
+        Thread {
+            val bmp = decode(uri)
+            post {
+                if (token == loadToken) {
+                    photoBmp = bmp
+                    photoFail = bmp == null
+                }
+            }
+        }.start()
+    }
+
+    private fun openList(type: Int, title: String) {
+        if (!cardSet) {
+            showMsg("Memory card not found.\n(PXP-8001)")
+            return
+        }
+        val l = of(type)
+        if (l.isEmpty()) {
+            showMsg("No files found.\n(PXP-8002)")
+            return
+        }
+        listEntries = l
+        listTitle = title
+        listSel = 0
+        mode = 1
+    }
+
+    private fun openPhotos() {
+        if (!cardSet) {
+            showMsg("Memory card not found.\n(PXP-8001)")
+            return
+        }
+        val l = of(T_PHOTO)
+        if (l.isEmpty()) {
+            showMsg("No photos found.\n(PXP-8002)")
+            return
+        }
+        photos = l
+        photoIdx = 0
+        mode = 2
+        loadPhoto()
+    }
+
+    private fun moveH(d: Int) {
+        when (mode) {
+            0 -> {
+                val n = cat + d
+                if (n in cats.indices) {
+                    cat = n
+                    item = 0
+                    itemAnim = 0f
+                    Sfx.click()
+                }
+            }
+            1 -> if (d < 0) {
+                mode = 0
+                Sfx.click()
+            }
+            2 -> {
+                val n = photoIdx + d
+                if (n in photos.indices) {
+                    photoIdx = n
+                    Sfx.click()
+                    loadPhoto()
+                }
+            }
+        }
+    }
+
+    private fun moveV(d: Int) {
+        when (mode) {
+            0 -> {
+                val n = item + d
+                if (n in items[cat].indices) {
+                    item = n
+                    Sfx.click()
+                }
+            }
+            1 -> {
+                val n = listSel + d
+                if (n in listEntries.indices) {
+                    listSel = n
+                    Sfx.click()
+                }
+            }
+            2 -> if (d < 0) {
+                mode = 0
+                photoBmp = null
+                Sfx.click()
+            }
+        }
+    }
+
+    private fun confirm() {
+        when (mode) {
+            1 -> {
+                Sfx.ok()
+                val e = listEntries[listSel]
+                if (e.type == T_GAME) showMsg("Now loading...")
+                onOpen?.invoke(e)
+            }
+            2 -> {}
+            else -> {
+                Sfx.ok()
+                val label = items[cat][item]
+                when {
+                    label == "Memory Stick" -> onPickFolder?.invoke()
+                    label == "PXP Games" -> openList(T_GAME, "PXP Games")
+                    label == "Video Player" -> openList(T_VIDEO, "Videos")
+                    label == "Music Player" -> openList(T_MUSIC, "Music")
+                    label == "Photo Viewer" -> openPhotos()
+                    label.startsWith("Time Zone") -> cycleZone()
+                    else -> showMsg("This feature is not ready yet.")
+                }
+            }
+        }
+    }
+
+    fun goBack(): Boolean {
+        if (mode == 0) return false
+        mode = 0
+        photoBmp = null
+        Sfx.click()
+        return true
+    }
+
+    fun onPadKey(code: Int): Boolean {
+        if (!ready()) return false
+        return when (code) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> { moveH(-1); true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { moveH(1); true }
+            KeyEvent.KEYCODE_DPAD_UP -> { moveV(-1); true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { moveV(1); true }
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER -> { confirm(); true }
+            KeyEvent.KEYCODE_BUTTON_B -> goBack()
+            else -> false
+        }
+    }
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        val t = (System.nanoTime() - start) / 1e9f
-        if (t < menuStart + 0.4f) return true
+        if (!ready()) return true
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x
@@ -376,60 +566,12 @@ class PxpView(ctx: Context) : View(ctx) {
                 val dx = e.x - downX
                 val dy = e.y - downY
                 val th = width * 0.04f
-                if (showList) {
-                    if (dx > th && abs(dx) > abs(dy)) {
-                        showList = false
-                        Sfx.click()
-                    } else if (abs(dy) > th) {
-                        val n = if (dy < 0) listSel + 1 else listSel - 1
-                        if (n in games.indices) {
-                            listSel = n
-                            Sfx.click()
-                        }
-                    } else {
-                        Sfx.ok()
-                        showMsg("Game launching comes in the next step.")
-                    }
-                    return true
-                }
                 if (abs(dx) > th && abs(dx) > abs(dy)) {
-                    val n = if (dx < 0) cat + 1 else cat - 1
-                    if (n in cats.indices) {
-                        cat = n
-                        item = 0
-                        itemAnim = 0f
-                        Sfx.click()
-                    }
+                    moveH(if (dx < 0) 1 else -1)
                 } else if (abs(dy) > th) {
-                    val n = if (dy < 0) item + 1 else item - 1
-                    if (n in items[cat].indices) {
-                        item = n
-                        Sfx.click()
-                    }
+                    moveV(if (dy < 0) 1 else -1)
                 } else {
-                    Sfx.ok()
-                    val label = items[cat][item]
-                    when {
-                        label == "Memory Stick" -> onPickFolder?.invoke()
-                        label == "PXP Games" -> {
-                            if (!cardSet) {
-                                showMsg("Memory Stick not found.\n(PXP-8001)")
-                            } else if (games.isEmpty()) {
-                                showMsg("No games found.\n(PXP-8002)")
-                            } else {
-                                listSel = 0
-                                showList = true
-                            }
-                        }
-                        label.startsWith("Time Zone") -> {
-                            zoneIdx = (zoneIdx + 1) % zoneNames.size
-                            context.getSharedPreferences("pxp", Context.MODE_PRIVATE)
-                                .edit().putInt("zone", zoneIdx).apply()
-                            applyZone()
-                            showMsg("Time zone:\n" + zoneNames[zoneIdx])
-                        }
-                        else -> showMsg("This feature is not ready yet.")
-                    }
+                    confirm()
                 }
             }
         }
