@@ -30,6 +30,7 @@ class MainActivity : Activity() {
             startActivityForResult(i, 1)
         }
         pxp.onOpen = { open(it) }
+        pxp.onOpenWeb = { openWebUrl(it) }
         setContentView(pxp)
         val saved = getSharedPreferences("pxp", MODE_PRIVATE).getString("card", null)
         if (saved != null) scan(Uri.parse(saved))
@@ -76,7 +77,7 @@ class MainActivity : Activity() {
         }
     }
 
-    fun openWebUrl(url: String) {
+    private fun openWebUrl(url: String) {
         try {
             val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(i)
