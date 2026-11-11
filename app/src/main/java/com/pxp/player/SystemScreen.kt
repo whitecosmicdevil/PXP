@@ -1,14 +1,18 @@
 package com.pxp.player
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import java.util.Locale
 
+@Suppress("UNUSED_PARAMETER")
 fun buildSystemInfo(
     ctx: Context, bat: Battery, games: Int, cardSet: Boolean
 ): List<Pair<String, String>> {
@@ -23,7 +27,14 @@ fun buildSystemInfo(
     } catch (e: Exception) {
         "?"
     }
-    val batText = "${bat.percent}%" + if (bat.charging) " (charging)" else ""
+    val batIntent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    val level = batIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+    val scale = batIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+    val status = batIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+    val pct = if (level >= 0 && scale > 0) level * 100 / scale else -1
+    val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+        status == BatteryManager.BATTERY_STATUS_FULL
+    val batText = (if (pct >= 0) "$pct%" else "?") + if (charging) " (charging)" else ""
     return listOf(
         "PXP version" to ver,
         "Android" to Build.VERSION.RELEASE,
