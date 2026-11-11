@@ -12,8 +12,15 @@ data class Note(val freq: Double, val startMs: Int, val durMs: Int, val vol: Dou
 
 object Sfx {
     private const val SR = 44100
+    var style = 0
 
-    fun click() = play(listOf(Note(1500.0, 0, 60)), 0.15)
+    fun click() {
+        if (style == 0) {
+            play(listOf(Note(1500.0, 0, 60)), 0.15)
+        } else {
+            play(listOf(Note(2200.0, 0, 40), Note(1760.0, 45, 60)), 0.14)
+        }
+    }
 
     fun ok() = play(listOf(Note(880.0, 0, 120), Note(1320.0, 70, 200)), 0.2)
 
