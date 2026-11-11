@@ -218,4 +218,153 @@ class PxpView(ctx: Context) : View(ctx) {
             for (j in list.indices) {
                 val d = j - itemAnim
                 val y = cy + h * 0.27f + d * h * 0.14f
-                val s
+                val sel = (1f - abs(d)).coerceIn(0f, 1f)
+                val s = h * 0.075f * (1f + 0.25f * sel)
+                col(Color.WHITE, (0.35f + 0.65f * sel) * xA)
+                c.drawRoundRect(
+                    RectF(selX - s / 2, y - s / 2, selX + s / 2, y + s / 2),
+                    s * 0.2f, s * 0.2f, paint
+                )
+                paint.textAlign = Paint.Align.LEFT
+                paint.textSize = h * (0.05f + 0.012f * sel)
+                col(Color.WHITE, (0.5f + 0.5f * sel) * xA)
+                c.drawText(list[j], selX + s * 0.8f, y + h * 0.018f, paint)
+            }
+
+            paint.textAlign = Paint.Align.RIGHT
+            paint.textSize = h * 0.05f
+            col(Color.WHITE, xA)
+            c.drawText(clockFmt.format(Date()), w - w * 0.04f, h * 0.09f, paint)
+        }
+
+        // Message box
+        val m = msg
+        if (m != null && System.currentTimeMillis() < msgUntil) {
+            col(Color.BLACK, 0.8f)
+            c.drawRoundRect(
+                RectF(w * 0.2f, h * 0.38f, w * 0.8f, h * 0.62f),
+                h * 0.03f, h * 0.03f, paint
+            )
+            col(Color.WHITE, 1f)
+            paint.textAlign = Paint.Align.CENTER
+            paint.textSize = h * 0.055f
+            c.drawText(m, w / 2, h * 0.53f, paint)
+        }
+
+        postInvalidateOnAnimation()
+    }
+
+    private fun drawIcon(c: Canvas, i: Int, x: Float, y: Float, size: Float, a: Float) {
+        val u = size / 10f
+        col(Color.rgb(20, 70, 140), a)
+        paint.style = Paint.Style.FILL
+        when (i) {
+            0 -> {
+                for (k in 0 until 8) {
+                    c.save()
+                    c.rotate(k * 45f, x, y)
+                    c.drawRect(x - u * 0.5f, y - u * 3.6f, x + u * 0.5f, y - u * 2.2f, paint)
+                    c.restore()
+                }
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = u * 1.1f
+                c.drawCircle(x, y, u * 2.1f, paint)
+            }
+            1 -> {
+                val p = Path()
+                p.moveTo(x - u * 3.5f, y + u * 3f)
+                p.lineTo(x - u * 1f, y - u * 0.5f)
+                p.lineTo(x + u * 0.5f, y + u * 1.5f)
+                p.lineTo(x + u * 1.5f, y + u * 0.3f)
+                p.lineTo(x + u * 3.5f, y + u * 3f)
+                p.close()
+                c.drawPath(p, paint)
+                c.drawCircle(x + u * 2f, y - u * 2f, u * 1.1f, paint)
+            }
+            2 -> {
+                c.drawOval(RectF(x - u * 2.6f, y + u * 1.2f, x - u * 0.4f, y + u * 2.8f), paint)
+                c.drawRect(x - u * 0.9f, y - u * 3.2f, x - u * 0.2f, y + u * 2f, paint)
+                val p = Path()
+                p.moveTo(x - u * 0.2f, y - u * 3.2f)
+                p.lineTo(x + u * 2.8f, y - u * 2f)
+                p.lineTo(x + u * 2.8f, y - u * 0.4f)
+                p.lineTo(x - u * 0.2f, y - u * 1.4f)
+                p.close()
+                c.drawPath(p, paint)
+            }
+            3 -> {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = u * 0.8f
+                c.drawRoundRect(
+                    RectF(x - u * 3.5f, y - u * 2.6f, x + u * 3.5f, y + u * 2.6f),
+                    u * 0.8f, u * 0.8f, paint
+                )
+                paint.style = Paint.Style.FILL
+                val p = Path()
+                p.moveTo(x - u * 1f, y - u * 1.4f)
+                p.lineTo(x + u * 1.8f, y)
+                p.lineTo(x - u * 1f, y + u * 1.4f)
+                p.close()
+                c.drawPath(p, paint)
+            }
+            4 -> {
+                c.drawRoundRect(
+                    RectF(x - u * 4f, y - u * 2.2f, x + u * 4f, y + u * 2.2f),
+                    u * 1.6f, u * 1.6f, paint
+                )
+                col(Color.WHITE, a)
+                c.drawRect(x - u * 2.8f, y - u * 0.4f, x - u * 0.8f, y + u * 0.4f, paint)
+                c.drawRect(x - u * 2.2f, y - u * 1.2f, x - u * 1.4f, y + u * 1.2f, paint)
+                c.drawCircle(x + u * 1.6f, y + u * 0.6f, u * 0.5f, paint)
+                c.drawCircle(x + u * 2.8f, y - u * 0.6f, u * 0.5f, paint)
+            }
+            else -> {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = u * 0.7f
+                c.drawCircle(x, y, u * 3.2f, paint)
+                c.drawOval(RectF(x - u * 1.4f, y - u * 3.2f, x + u * 1.4f, y + u * 3.2f), paint)
+                c.drawLine(x - u * 3.2f, y, x + u * 3.2f, y, paint)
+            }
+        }
+        paint.style = Paint.Style.FILL
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        val t = (System.nanoTime() - start) / 1e9f
+        if (t < 5.2f) return true
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = e.x
+                downY = e.y
+            }
+            MotionEvent.ACTION_UP -> {
+                val dx = e.x - downX
+                val dy = e.y - downY
+                val th = width * 0.04f
+                if (abs(dx) > th && abs(dx) > abs(dy)) {
+                    val n = if (dx < 0) cat + 1 else cat - 1
+                    if (n in cats.indices) {
+                        cat = n
+                        item = 0
+                        itemAnim = 0f
+                        Sfx.play(listOf(1400.0 to 35), 0.12)
+                    }
+                } else if (abs(dy) > th) {
+                    val n = if (dy < 0) item + 1 else item - 1
+                    if (n in items[cat].indices) {
+                        item = n
+                        Sfx.play(listOf(1200.0 to 35), 0.12)
+                    }
+                } else {
+                    Sfx.play(listOf(880.0 to 70, 1320.0 to 110), 0.15)
+                    msg = if (items[cat][item] == "PXP Games")
+                        "No memory card found."
+                    else
+                        "This feature is not ready yet."
+                    msgUntil = System.currentTimeMillis() + 2200
+                }
+            }
+        }
+        return true
+    }
+}
