@@ -24,6 +24,18 @@ object Sfx {
 
     fun ok() = play(listOf(Note(880.0, 0, 120), Note(1320.0, 70, 200)), 0.2)
 
+    fun egg() = play(
+        listOf(
+            Note(523.3, 0, 350),
+            Note(659.3, 120, 350),
+            Note(784.0, 240, 350),
+            Note(1046.5, 360, 350),
+            Note(1318.5, 480, 400),
+            Note(1568.0, 600, 700)
+        ),
+        0.3
+    )
+
     fun boot() = play(
         listOf(
             Note(130.8, 0, 3200, 0.7),
