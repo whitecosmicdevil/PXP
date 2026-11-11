@@ -1,6 +1,8 @@
 package com.pxp.player
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -10,32 +12,47 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.os.BatteryManager
 import android.view.MotionEvent
 import android.view.View
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.sin
 
 class PxpView(ctx: Context) : View(ctx) {
+    var onPickFolder: (() -> Unit)? = null
+
     private val start = System.nanoTime()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val wave = Path()
-    private val clockFmt = SimpleDateFormat("dd/MM  HH:mm", Locale.getDefault())
+    private val clockFmt = SimpleDateFormat("dd/MM  hh:mm a", Locale.ENGLISH)
     private val uiFace = Typeface.create("sans-serif-light", Typeface.NORMAL)
     private val logoFace = Typeface.create("sans-serif-thin", Typeface.NORMAL)
     private var bg: Shader? = null
     private val menuStart = 6.2f
 
+    private val zoneIds = listOf(
+        "", "Asia/Kolkata", "UTC", "Europe/London", "Europe/Paris", "Asia/Dubai",
+        "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney",
+        "America/New_York", "America/Chicago", "America/Los_Angeles"
+    )
+    private val zoneNames = listOf(
+        "Device", "India (IST)", "UTC", "London", "Paris", "Dubai",
+        "Singapore", "Tokyo", "Sydney", "New York", "Chicago", "Los Angeles"
+    )
+    private var zoneIdx = ctx.getSharedPreferences("pxp", Context.MODE_PRIVATE).getInt("zone", 0)
+
     private val cats = listOf("Settings", "Photo", "Music", "Video", "Game", "Network")
-    private val items = listOf(
-        listOf("System Settings", "Theme Settings", "Sound Settings"),
-        listOf("Memory Stick", "Photo Viewer"),
-        listOf("Memory Stick", "Music Player"),
-        listOf("Memory Stick", "Video Player"),
-        listOf("Memory Stick", "PXP Games"),
-        listOf("Network Update", "Browser")
+    private val items: List<MutableList<String>> = listOf(
+        mutableListOf("Time Zone", "Theme Settings", "Sound Settings"),
+        mutableListOf("Memory Stick", "Photo Viewer"),
+        mutableListOf("Memory Stick", "Music Player"),
+        mutableListOf("Memory Stick", "Video Player"),
+        mutableListOf("Memory Stick", "PXP Games"),
+        mutableListOf("Network Update", "Browser")
     )
 
     private var cat = 4
@@ -47,6 +64,53 @@ class PxpView(ctx: Context) : View(ctx) {
     private var downY = 0f
     private var msg: String? = null
     private var msgUntil = 0L
+
+    private var games: List<String> = emptyList()
+    private var cardSet = false
+    private var showList = false
+    private var listSel = 0
+
+    private var batPct = 100
+    private var batCharging = false
+    private var batCheck = 0L
+
+    init {
+        applyZone()
+    }
+
+    private fun applyZone() {
+        clockFmt.timeZone = if (zoneIdx == 0) TimeZone.getDefault()
+        else TimeZone.getTimeZone(zoneIds[zoneIdx])
+        items[0][0] = "Time Zone: " + zoneNames[zoneIdx]
+    }
+
+    private fun updateBattery() {
+        val now = System.currentTimeMillis()
+        if (now - batCheck < 3000) return
+        batCheck = now
+        val i = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return
+        val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        if (level >= 0 && scale > 0) batPct = level * 100 / scale
+        batCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+    }
+
+    fun setGames(list: List<String>) {
+        games = list.sorted()
+        cardSet = true
+        listSel = 0
+        val t = (System.nanoTime() - start) / 1e9f
+        if (list.isNotEmpty() && t > menuStart) {
+            showMsg("${list.size} games found")
+        }
+    }
+
+    private fun showMsg(m: String) {
+        msg = m
+        msgUntil = System.currentTimeMillis() + 2200
+    }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         bg = LinearGradient(
@@ -72,6 +136,7 @@ class PxpView(ctx: Context) : View(ctx) {
         drawBackground(c, t, w, h)
         drawBoot(c, t, w, h)
         if (t > menuStart) drawMenu(c, t, w, h)
+        if (showList) drawList(c, w, h)
         drawMessage(c, w, h)
         postInvalidateOnAnimation()
     }
@@ -150,6 +215,48 @@ class PxpView(ctx: Context) : View(ctx) {
         }
     }
 
+    private fun drawStatus(c: Canvas, w: Float, h: Float, a: Float) {
+        updateBattery()
+        paint.typeface = uiFace
+        paint.textAlign = Paint.Align.RIGHT
+        paint.textSize = h * 0.045f
+        col(Color.WHITE, a)
+        val clock = clockFmt.format(Date())
+        val right = w * 0.96f
+        val y = h * 0.09f
+        c.drawText(clock, right, y, paint)
+        val tw = paint.measureText(clock)
+        val pctText = batPct.toString() + "%"
+        val pctRight = right - tw - h * 0.05f
+        c.drawText(pctText, pctRight, y, paint)
+        val pw = paint.measureText(pctText)
+        val tip = h * 0.012f
+        val bodyRight = pctRight - pw - h * 0.025f - tip
+        val bw = h * 0.1f
+        val bh = h * 0.05f
+        val cyy = y - h * 0.016f
+        val color = when {
+            batCharging -> Color.rgb(120, 255, 140)
+            batPct <= 20 -> Color.rgb(255, 110, 110)
+            else -> Color.WHITE
+        }
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = h * 0.006f
+        col(color, a)
+        c.drawRoundRect(
+            RectF(bodyRight - bw, cyy - bh / 2, bodyRight, cyy + bh / 2),
+            bh * 0.2f, bh * 0.2f, paint
+        )
+        paint.style = Paint.Style.FILL
+        c.drawRect(bodyRight, cyy - bh * 0.2f, bodyRight + tip, cyy + bh * 0.2f, paint)
+        val pad = h * 0.01f
+        val fillW = (bw - pad * 2) * batPct / 100f
+        c.drawRect(
+            bodyRight - bw + pad, cyy - bh / 2 + pad,
+            bodyRight - bw + pad + fillW, cyy + bh / 2 - pad, paint
+        )
+    }
+
     private fun drawMenu(c: Canvas, t: Float, w: Float, h: Float) {
         val xA = ((t - menuStart) / 1f).coerceIn(0f, 1f)
         catAnim += (cat - catAnim) * 0.2f
@@ -202,10 +309,39 @@ class PxpView(ctx: Context) : View(ctx) {
             c.drawText(list[j], selX + s * 0.8f, y + h * 0.018f, paint)
         }
 
+        drawStatus(c, w, h, xA)
+    }
+
+    private fun drawList(c: Canvas, w: Float, h: Float) {
+        col(Color.BLACK, 0.6f)
+        c.drawRect(0f, 0f, w, h, paint)
+        paint.typeface = uiFace
+        paint.textAlign = Paint.Align.LEFT
+        paint.textSize = h * 0.06f
+        col(Color.WHITE, 1f)
+        c.drawText("PXP Games", w * 0.08f, h * 0.15f, paint)
+        val first = (listSel - 2).coerceAtLeast(0)
+        for (r in 0 until 6) {
+            val idx = first + r
+            if (idx >= games.size) break
+            val y = h * 0.28f + r * h * 0.11f
+            if (idx == listSel) {
+                col(Color.WHITE, 0.25f)
+                c.drawRoundRect(
+                    RectF(w * 0.06f, y - h * 0.07f, w * 0.94f, y + h * 0.035f),
+                    h * 0.02f, h * 0.02f, paint
+                )
+            }
+            col(Color.WHITE, if (idx == listSel) 1f else 0.6f)
+            paint.textSize = h * 0.05f
+            val full = games[idx]
+            val name = if (full.length > 40) full.substring(0, 40) + "..." else full
+            c.drawText(name, w * 0.1f, y, paint)
+        }
         paint.textAlign = Paint.Align.RIGHT
-        paint.textSize = h * 0.05f
-        col(Color.WHITE, xA)
-        c.drawText(clockFmt.format(Date()), w - w * 0.04f, h * 0.09f, paint)
+        paint.textSize = h * 0.04f
+        col(Color.WHITE, 0.8f)
+        c.drawText("${listSel + 1} / ${games.size}", w * 0.94f, h * 0.15f, paint)
     }
 
     private fun drawMessage(c: Canvas, w: Float, h: Float) {
@@ -213,13 +349,19 @@ class PxpView(ctx: Context) : View(ctx) {
         if (m == null || System.currentTimeMillis() >= msgUntil) return
         col(Color.BLACK, 0.8f)
         c.drawRoundRect(
-            RectF(w * 0.2f, h * 0.38f, w * 0.8f, h * 0.62f),
+            RectF(w * 0.2f, h * 0.36f, w * 0.8f, h * 0.64f),
             h * 0.03f, h * 0.03f, paint
         )
         col(Color.WHITE, 1f)
+        paint.typeface = uiFace
         paint.textAlign = Paint.Align.CENTER
+        val lines = m.split("\n")
         paint.textSize = h * 0.055f
-        c.drawText(m, w / 2, h * 0.53f, paint)
+        c.drawText(lines[0], w / 2, h * 0.49f, paint)
+        if (lines.size > 1) {
+            paint.textSize = h * 0.04f
+            c.drawText(lines[1], w / 2, h * 0.57f, paint)
+        }
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -234,6 +376,22 @@ class PxpView(ctx: Context) : View(ctx) {
                 val dx = e.x - downX
                 val dy = e.y - downY
                 val th = width * 0.04f
+                if (showList) {
+                    if (dx > th && abs(dx) > abs(dy)) {
+                        showList = false
+                        Sfx.click()
+                    } else if (abs(dy) > th) {
+                        val n = if (dy < 0) listSel + 1 else listSel - 1
+                        if (n in games.indices) {
+                            listSel = n
+                            Sfx.click()
+                        }
+                    } else {
+                        Sfx.ok()
+                        showMsg("Game launching comes in the next step.")
+                    }
+                    return true
+                }
                 if (abs(dx) > th && abs(dx) > abs(dy)) {
                     val n = if (dx < 0) cat + 1 else cat - 1
                     if (n in cats.indices) {
@@ -250,11 +408,28 @@ class PxpView(ctx: Context) : View(ctx) {
                     }
                 } else {
                     Sfx.ok()
-                    msg = if (items[cat][item] == "PXP Games")
-                        "No memory card found."
-                    else
-                        "This feature is not ready yet."
-                    msgUntil = System.currentTimeMillis() + 2200
+                    val label = items[cat][item]
+                    when {
+                        label == "Memory Stick" -> onPickFolder?.invoke()
+                        label == "PXP Games" -> {
+                            if (!cardSet) {
+                                showMsg("Memory Stick not found.\n(PXP-8001)")
+                            } else if (games.isEmpty()) {
+                                showMsg("No games found.\n(PXP-8002)")
+                            } else {
+                                listSel = 0
+                                showList = true
+                            }
+                        }
+                        label.startsWith("Time Zone") -> {
+                            zoneIdx = (zoneIdx + 1) % zoneNames.size
+                            context.getSharedPreferences("pxp", Context.MODE_PRIVATE)
+                                .edit().putInt("zone", zoneIdx).apply()
+                            applyZone()
+                            showMsg("Time zone:\n" + zoneNames[zoneIdx])
+                        }
+                        else -> showMsg("This feature is not ready yet.")
+                    }
                 }
             }
         }
