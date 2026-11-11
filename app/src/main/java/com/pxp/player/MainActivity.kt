@@ -204,10 +204,8 @@ class PxpView(ctx: Context) : View(ctx) {
                     RectF(x - size / 2, cy - size / 2, x + size / 2, cy + size / 2),
                     size * 0.22f, size * 0.22f, paint
                 )
-                col(Color.rgb(20, 70, 140), (0.45f + 0.55f * sel) * xA)
+                drawIcon(c, i, x, cy, size, (0.45f + 0.55f * sel) * xA)
                 paint.textAlign = Paint.Align.CENTER
-                paint.textSize = size * 0.5f
-                c.drawText(cats[i].substring(0, 1), x, cy + size * 0.18f, paint)
                 if (sel > 0.5f) {
                     col(Color.WHITE, xA)
                     paint.textSize = h * 0.045f
@@ -220,78 +218,4 @@ class PxpView(ctx: Context) : View(ctx) {
             for (j in list.indices) {
                 val d = j - itemAnim
                 val y = cy + h * 0.27f + d * h * 0.14f
-                val sel = (1f - abs(d)).coerceIn(0f, 1f)
-                val s = h * 0.075f * (1f + 0.25f * sel)
-                col(Color.WHITE, (0.35f + 0.65f * sel) * xA)
-                c.drawRoundRect(
-                    RectF(selX - s / 2, y - s / 2, selX + s / 2, y + s / 2),
-                    s * 0.2f, s * 0.2f, paint
-                )
-                paint.textAlign = Paint.Align.LEFT
-                paint.textSize = h * (0.05f + 0.012f * sel)
-                col(Color.WHITE, (0.5f + 0.5f * sel) * xA)
-                c.drawText(list[j], selX + s * 0.8f, y + h * 0.018f, paint)
-            }
-
-            paint.textAlign = Paint.Align.RIGHT
-            paint.textSize = h * 0.05f
-            col(Color.WHITE, xA)
-            c.drawText(clockFmt.format(Date()), w - w * 0.04f, h * 0.09f, paint)
-        }
-
-        // Message box
-        val m = msg
-        if (m != null && System.currentTimeMillis() < msgUntil) {
-            col(Color.BLACK, 0.8f)
-            c.drawRoundRect(
-                RectF(w * 0.2f, h * 0.38f, w * 0.8f, h * 0.62f),
-                h * 0.03f, h * 0.03f, paint
-            )
-            col(Color.WHITE, 1f)
-            paint.textAlign = Paint.Align.CENTER
-            paint.textSize = h * 0.055f
-            c.drawText(m, w / 2, h * 0.53f, paint)
-        }
-
-        postInvalidateOnAnimation()
-    }
-
-    override fun onTouchEvent(e: MotionEvent): Boolean {
-        val t = (System.nanoTime() - start) / 1e9f
-        if (t < 5.2f) return true
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                downX = e.x
-                downY = e.y
-            }
-            MotionEvent.ACTION_UP -> {
-                val dx = e.x - downX
-                val dy = e.y - downY
-                val th = width * 0.04f
-                if (abs(dx) > th && abs(dx) > abs(dy)) {
-                    val n = if (dx < 0) cat + 1 else cat - 1
-                    if (n in cats.indices) {
-                        cat = n
-                        item = 0
-                        itemAnim = 0f
-                        Sfx.play(listOf(1400.0 to 35), 0.12)
-                    }
-                } else if (abs(dy) > th) {
-                    val n = if (dy < 0) item + 1 else item - 1
-                    if (n in items[cat].indices) {
-                        item = n
-                        Sfx.play(listOf(1200.0 to 35), 0.12)
-                    }
-                } else {
-                    Sfx.play(listOf(880.0 to 70, 1320.0 to 110), 0.15)
-                    msg = if (items[cat][item] == "PXP Games")
-                        "No memory card found."
-                    else
-                        "This feature is not ready yet."
-                    msgUntil = System.currentTimeMillis() + 2200
-                }
-            }
-        }
-        return true
-    }
-}
+                val s
