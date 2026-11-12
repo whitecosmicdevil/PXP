@@ -36,6 +36,7 @@ class PxpView(ctx: Context) : View(ctx) {
     private val prefs = ctx.getSharedPreferences("pxp", Context.MODE_PRIVATE)
     private val battery = Battery(ctx)
     private val updater = UpdateChecker(ctx)
+    private val game = MiniGame()
     private val clockFmt = SimpleDateFormat("dd/MM  hh:mm a", Locale.getDefault())
     private val uiFace = Typeface.create("sans-serif-light", Typeface.NORMAL)
     private val logoFace = Typeface.create("sans-serif-thin", Typeface.NORMAL)
@@ -78,13 +79,17 @@ class PxpView(ctx: Context) : View(ctx) {
         mutableListOf("Network Update", "Browser")
     )
 
+    private var devUnlocked = false
+
     init {
         paint.isFilterBitmap = true
         zi = prefs.getInt("zone", 0).coerceIn(0, zones.size - 1)
         themeIdx = prefs.getInt("theme", 0).coerceIn(0, themeNames.size - 1)
         Sfx.style = prefs.getInt("sound", 0).coerceIn(0, soundNames.size - 1)
+        devUnlocked = prefs.getBoolean("dev", false)
         applyZone()
         applyLabels()
+        applyDev()
     }
 
     private var cat = 4
@@ -111,6 +116,8 @@ class PxpView(ctx: Context) : View(ctx) {
     private var sysInfo: List<Pair<String, String>> = emptyList()
     private var eggBuf = ""
     private var eggStart = 0L
+    private var eggTaps = 0
+    private var eggTapNs = 0L
 
     private fun applyZone() {
         val id = zones[zi].second
@@ -121,6 +128,12 @@ class PxpView(ctx: Context) : View(ctx) {
     private fun applyLabels() {
         items[0][2] = "Theme: " + themeNames[themeIdx]
         items[0][3] = "Sound: " + soundNames[Sfx.style]
+    }
+
+    private fun applyDev() {
+        if (devUnlocked && !items[0].contains("Developer Mode")) {
+            items[0].add("Developer Mode")
+        }
     }
 
     private fun buildBg() {
@@ -152,15 +165,23 @@ class PxpView(ctx: Context) : View(ctx) {
         Sfx.click()
     }
 
-    private fun trackEgg(ch: Char) {
-        if (mode != 0) return
+    private fun openCredits() {
+        mode = 5
+        eggStart = System.nanoTime()
+        eggTaps = 0
+        Sfx.egg()
+    }
+
+    private fun trackEgg(ch: Char): Boolean {
+        if (mode != 0) return false
         eggBuf = (eggBuf + ch).takeLast(8)
-        if (eggBuf == "UUDDLRLR") {
-            eggBuf = ""
-            mode = 5
-            eggStart = System.nanoTime()
-            Sfx.egg()
-        }
+        if (eggBuf != "UUDDLRLR") return false
+        eggBuf = ""
+        devUnlocked = true
+        prefs.edit().putBoolean("dev", true).apply()
+        applyDev()
+        openCredits()
+        return true
     }
 
     fun setLibrary(list: List<Entry>) {
@@ -222,7 +243,13 @@ class PxpView(ctx: Context) : View(ctx) {
         }
         if (mode == 5) {
             paint.typeface = uiFace
-            drawEgg(c, paint, w, h, (System.nanoTime() - eggStart) / 1e9f)
+            val et = (System.nanoTime() - eggStart) / 1e9f
+            val pulse = (1f - (System.nanoTime() - eggTapNs) / 250_000_000f).coerceIn(0f, 1f)
+            drawEgg(c, paint, w, h, et, pulse)
+        }
+        if (mode == 6) {
+            paint.typeface = uiFace
+            game.draw(c, paint, w, h)
         }
         drawMessage(c, w, h)
         postInvalidateOnAnimation()
@@ -582,11 +609,23 @@ class PxpView(ctx: Context) : View(ctx) {
                 if (e.type == T_GAME) showMsg("Now loading...")
                 onOpen?.invoke(e)
             }
-            2, 4, 5 -> {}
+            2, 4 -> {}
             3 -> {
                 Sfx.ok()
                 if (updater.state == 2) onOpenWeb?.invoke(RELEASES_URL) else updater.check()
             }
+            5 -> {
+                eggTaps++
+                eggTapNs = System.nanoTime()
+                Sfx.click()
+                if (eggTaps >= 5) {
+                    eggTaps = 0
+                    game.reset()
+                    mode = 6
+                    Sfx.egg()
+                }
+            }
+            6 -> {}
             else -> {
                 val label = items[cat][item]
                 if (!label.startsWith("Sound")) Sfx.ok()
@@ -607,6 +646,7 @@ class PxpView(ctx: Context) : View(ctx) {
                         )
                         mode = 4
                     }
+                    label == "Developer Mode" -> openCredits()
                     label.startsWith("Theme") -> cycleTheme()
                     label.startsWith("Sound") -> cycleSound()
                     label.startsWith("Time Zone") -> cycleZone()
@@ -618,7 +658,7 @@ class PxpView(ctx: Context) : View(ctx) {
 
     fun goBack(): Boolean {
         if (mode == 0) return false
-        mode = 0
+        mode = if (mode == 6) 5 else 0
         photoBmp = null
         Sfx.click()
         return true
@@ -626,11 +666,23 @@ class PxpView(ctx: Context) : View(ctx) {
 
     fun onPadKey(code: Int): Boolean {
         if (!ready()) return false
+        if (mode == 6) {
+            when (code) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> game.nudge(-0.06f)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> game.nudge(0.06f)
+                KeyEvent.KEYCODE_BUTTON_A,
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER -> game.action()
+                KeyEvent.KEYCODE_BUTTON_B -> return goBack()
+                else -> return false
+            }
+            return true
+        }
         return when (code) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> { trackEgg('L'); moveH(-1); true }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> { trackEgg('R'); moveH(1); true }
-            KeyEvent.KEYCODE_DPAD_UP -> { trackEgg('U'); moveV(-1); true }
-            KeyEvent.KEYCODE_DPAD_DOWN -> { trackEgg('D'); moveV(1); true }
+            KeyEvent.KEYCODE_DPAD_LEFT -> { if (!trackEgg('L')) moveH(-1); true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { if (!trackEgg('R')) moveH(1); true }
+            KeyEvent.KEYCODE_DPAD_UP -> { if (!trackEgg('U')) moveV(-1); true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { if (!trackEgg('D')) moveV(1); true }
             KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER -> { confirm(); true }
@@ -641,6 +693,10 @@ class PxpView(ctx: Context) : View(ctx) {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!ready()) return true
+        if (mode == 6) {
+            game.onTouch(e, width.toFloat(), height.toFloat())
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x
@@ -651,11 +707,9 @@ class PxpView(ctx: Context) : View(ctx) {
                 val dy = e.y - downY
                 val th = width * 0.04f
                 if (abs(dx) > th && abs(dx) > abs(dy)) {
-                    trackEgg(if (dx < 0) 'L' else 'R')
-                    moveH(if (dx < 0) 1 else -1)
+                    if (!trackEgg(if (dx < 0) 'L' else 'R')) moveH(if (dx < 0) 1 else -1)
                 } else if (abs(dy) > th) {
-                    trackEgg(if (dy < 0) 'U' else 'D')
-                    moveV(if (dy < 0) 1 else -1)
+                    if (!trackEgg(if (dy < 0) 'U' else 'D')) moveV(if (dy < 0) 1 else -1)
                 } else {
                     confirm()
                 }
