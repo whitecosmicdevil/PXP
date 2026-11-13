@@ -7,6 +7,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Download PPSSPP core
+        run: |
+          mkdir -p app/src/main/jniLibs/arm64-v8a tmp_core
+          curl -fL -o core.zip https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/ppsspp_libretro_android.so.zip
+          unzip -o core.zip -d tmp_core
+          ls -la tmp_core
+          cp tmp_core/*.so app/src/main/jniLibs/arm64-v8a/libppsspp_libretro_android.so
+          ls -la app/src/main/jniLibs/arm64-v8a
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
