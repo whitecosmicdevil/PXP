@@ -8,6 +8,7 @@ import android.provider.DocumentsContract
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import java.io.File
 
 class MainActivity : Activity() {
     private lateinit var pxp: PxpView
@@ -63,7 +64,7 @@ class MainActivity : Activity() {
 
     private fun open(e: Entry) {
         if (e.type == T_GAME) {
-            launchGame(e.uri)
+            launchBuiltIn(e)
             return
         }
         val mime = if (e.type == T_VIDEO) "video/*" else "audio/*"
@@ -74,6 +75,22 @@ class MainActivity : Activity() {
             startActivity(i)
         } catch (ex: Exception) {
             pxp.showMsg("No player found.\n(PXP-9002)")
+        }
+    }
+
+    private fun launchBuiltIn(e: Entry) {
+        val core = File(applicationInfo.nativeLibraryDir, "libppsspp_libretro_android.so")
+        if (!core.exists()) {
+            launchGame(e.uri)
+            return
+        }
+        try {
+            val i = Intent(this, GameActivity::class.java)
+            i.putExtra("uri", e.uri.toString())
+            i.putExtra("name", e.name)
+            startActivity(i)
+        } catch (ex: Exception) {
+            launchGame(e.uri)
         }
     }
 
