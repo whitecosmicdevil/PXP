@@ -36,4 +36,5 @@ android {
 
 dependencies {
     implementation("com.github.swordfish90:libretrodroid:0.13.2")
+    implementation("androidx.activity:activity:1.9.3")
 }
