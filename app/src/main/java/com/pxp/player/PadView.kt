@@ -10,6 +10,8 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 
+const val KEY_FAST = -1000
+
 class PadView(ctx: Context, private val onKey: (Int, Boolean) -> Unit) : View(ctx) {
     private class Face(val code: Int, val kind: Int) {
         var x = 0f
@@ -22,6 +24,8 @@ class PadView(ctx: Context, private val onKey: (Int, Boolean) -> Unit) : View(ct
 
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
+    private val cross = Path()
+    private val fastRect = RectF()
     private val pressed = HashSet<Int>()
 
     private val faces = listOf(
@@ -68,6 +72,18 @@ class PadView(ctx: Context, private val onKey: (Int, Boolean) -> Unit) : View(ct
         val sy = u - u * 0.04f - sh
         boxes[2].rect.set(wf / 2f - u * 0.2f - sw / 2f, sy, wf / 2f - u * 0.2f + sw / 2f, sy + sh)
         boxes[3].rect.set(wf / 2f + u * 0.2f - sw / 2f, sy, wf / 2f + u * 0.2f + sw / 2f, sy + sh)
+        fastRect.set(wf / 2f - u * 0.13f, u * 0.04f, wf / 2f + u * 0.13f, u * 0.04f + u * 0.13f)
+
+        val t = dpR * 0.34f
+        cross.reset()
+        cross.addRoundRect(
+            RectF(dpX - dpR, dpY - t, dpX + dpR, dpY + t), t * 0.6f, t * 0.6f, Path.Direction.CW
+        )
+        val v = Path()
+        v.addRoundRect(
+            RectF(dpX - t, dpY - dpR, dpX + t, dpY + dpR), t * 0.6f, t * 0.6f, Path.Direction.CW
+        )
+        cross.op(v, Path.Op.UNION)
     }
 
     private fun hit(x: Float, y: Float, out: MutableSet<Int>) {
@@ -88,6 +104,7 @@ class PadView(ctx: Context, private val onKey: (Int, Boolean) -> Unit) : View(ct
         for (b in boxes) {
             if (b.rect.contains(x, y)) out.add(b.code)
         }
+        if (fastRect.contains(x, y)) out.add(KEY_FAST)
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -113,19 +130,93 @@ class PadView(ctx: Context, private val onKey: (Int, Boolean) -> Unit) : View(ct
         return true
     }
 
-    private fun arm(c: Canvas, l: Float, t: Float, r: Float, b: Float, code: Int) {
+    private fun arrow(c: Canvas, x: Float, y: Float, dir: Int, code: Int) {
+        val s = dpR * 0.16f
+        path.reset()
+        when (dir) {
+            0 -> {
+                path.moveTo(x, y - s)
+                path.lineTo(x - s, y + s * 0.7f)
+                path.lineTo(x + s, y + s * 0.7f)
+            }
+            1 -> {
+                path.moveTo(x, y + s)
+                path.lineTo(x - s, y - s * 0.7f)
+                path.lineTo(x + s, y - s * 0.7f)
+            }
+            2 -> {
+                path.moveTo(x - s, y)
+                path.lineTo(x + s * 0.7f, y - s)
+                path.lineTo(x + s * 0.7f, y + s)
+            }
+            else -> {
+                path.moveTo(x + s, y)
+                path.lineTo(x - s * 0.7f, y - s)
+                path.lineTo(x - s * 0.7f, y + s)
+            }
+        }
+        path.close()
         p.style = Paint.Style.FILL
         p.color = Color.WHITE
-        p.alpha = if (code in pressed) 170 else 70
-        c.drawRoundRect(RectF(l, t, r, b), dpR * 0.12f, dpR * 0.12f, p)
+        p.alpha = if (code in pressed) 255 else 170
+        c.drawPath(path, p)
+    }
+
+    private fun drawDpad(c: Canvas) {
+        p.style = Paint.Style.FILL
+        p.color = Color.WHITE
+        p.alpha = 55
+        c.drawPath(cross, p)
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = dpR * 0.03f
+        p.alpha = 150
+        c.drawPath(cross, p)
+
+        val t = dpR * 0.34f
+        p.style = Paint.Style.FILL
+        p.alpha = 110
+        if (KeyEvent.KEYCODE_DPAD_UP in pressed) {
+            c.drawRoundRect(RectF(dpX - t, dpY - dpR, dpX + t, dpY - t * 0.2f), t * 0.5f, t * 0.5f, p)
+        }
+        if (KeyEvent.KEYCODE_DPAD_DOWN in pressed) {
+            c.drawRoundRect(RectF(dpX - t, dpY + t * 0.2f, dpX + t, dpY + dpR), t * 0.5f, t * 0.5f, p)
+        }
+        if (KeyEvent.KEYCODE_DPAD_LEFT in pressed) {
+            c.drawRoundRect(RectF(dpX - dpR, dpY - t, dpX - t * 0.2f, dpY + t), t * 0.5f, t * 0.5f, p)
+        }
+        if (KeyEvent.KEYCODE_DPAD_RIGHT in pressed) {
+            c.drawRoundRect(RectF(dpX + t * 0.2f, dpY - t, dpX + dpR, dpY + t), t * 0.5f, t * 0.5f, p)
+        }
+        arrow(c, dpX, dpY - dpR * 0.68f, 0, KeyEvent.KEYCODE_DPAD_UP)
+        arrow(c, dpX, dpY + dpR * 0.68f, 1, KeyEvent.KEYCODE_DPAD_DOWN)
+        arrow(c, dpX - dpR * 0.68f, dpY, 2, KeyEvent.KEYCODE_DPAD_LEFT)
+        arrow(c, dpX + dpR * 0.68f, dpY, 3, KeyEvent.KEYCODE_DPAD_RIGHT)
+    }
+
+    private fun drawFast(c: Canvas) {
+        val down = KEY_FAST in pressed
+        p.style = Paint.Style.FILL
+        p.color = Color.WHITE
+        p.alpha = if (down) 150 else 50
+        val rr = fastRect.height() * 0.3f
+        c.drawRoundRect(fastRect, rr, rr, p)
+        p.alpha = 230
+        val cx = fastRect.centerX()
+        val cy = fastRect.centerY()
+        val s = fastRect.height() * 0.22f
+        for (k in 0..1) {
+            val ox = cx + (k - 0.5f) * s * 1.3f
+            path.reset()
+            path.moveTo(ox - s * 0.6f, cy - s)
+            path.lineTo(ox + s * 0.6f, cy)
+            path.lineTo(ox - s * 0.6f, cy + s)
+            path.close()
+            c.drawPath(path, p)
+        }
     }
 
     override fun onDraw(c: Canvas) {
-        val t = dpR * 0.32f
-        arm(c, dpX - t, dpY - dpR, dpX + t, dpY, KeyEvent.KEYCODE_DPAD_UP)
-        arm(c, dpX - t, dpY, dpX + t, dpY + dpR, KeyEvent.KEYCODE_DPAD_DOWN)
-        arm(c, dpX - dpR, dpY - t, dpX, dpY + t, KeyEvent.KEYCODE_DPAD_LEFT)
-        arm(c, dpX, dpY - t, dpX + dpR, dpY + t, KeyEvent.KEYCODE_DPAD_RIGHT)
+        drawDpad(c)
 
         for (f in faces) {
             p.style = Paint.Style.FILL
@@ -174,6 +265,8 @@ class PadView(ctx: Context, private val onKey: (Int, Boolean) -> Unit) : View(ct
             p.textSize = b.rect.height() * 0.45f
             c.drawText(b.label, b.rect.centerX(), b.rect.centerY() + p.textSize * 0.35f, p)
         }
+
+        drawFast(c)
         p.style = Paint.Style.FILL
     }
 }
