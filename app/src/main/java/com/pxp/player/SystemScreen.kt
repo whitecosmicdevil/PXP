@@ -10,6 +10,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import java.io.File
 import java.util.Locale
 
 @Suppress("UNUSED_PARAMETER")
@@ -35,6 +36,16 @@ fun buildSystemInfo(
     val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
         status == BatteryManager.BATTERY_STATUS_FULL
     val batText = (if (pct >= 0) "$pct%" else "?") + if (charging) " (charging)" else ""
+
+    val coreFile = File(ctx.applicationInfo.nativeLibraryDir, "libppsspp_libretro_android.so")
+    val coreText = if (coreFile.exists()) "Found" else "Missing"
+    val libText = try {
+        Class.forName("com.swordfish.libretrodroid.GLRetroView")
+        "Linked"
+    } catch (e: Throwable) {
+        "Missing"
+    }
+
     return listOf(
         "PXP version" to ver,
         "Android" to Build.VERSION.RELEASE,
@@ -42,7 +53,9 @@ fun buildSystemInfo(
         "Battery" to batText,
         "Free storage" to free,
         "Memory Stick" to (if (cardSet) "Connected" else "Not set"),
-        "Games found" to games.toString()
+        "Games found" to games.toString(),
+        "Engine library" to libText,
+        "PSP core" to coreText
     )
 }
 
@@ -55,12 +68,12 @@ fun drawSystemScreen(c: Canvas, p: Paint, w: Float, h: Float, info: List<Pair<St
     p.alpha = 255
     p.textAlign = Paint.Align.LEFT
     p.textSize = h * 0.07f
-    c.drawText("System Settings", w * 0.08f, h * 0.14f, p)
+    c.drawText("System Settings", w * 0.08f, h * 0.13f, p)
     p.strokeWidth = 2f
-    c.drawLine(w * 0.08f, h * 0.18f, w * 0.92f, h * 0.18f, p)
-    p.textSize = h * 0.05f
+    c.drawLine(w * 0.08f, h * 0.17f, w * 0.92f, h * 0.17f, p)
+    p.textSize = h * 0.045f
     for (i in info.indices) {
-        val y = h * 0.30f + i * h * 0.095f
+        val y = h * 0.27f + i * h * 0.075f
         p.textAlign = Paint.Align.LEFT
         p.alpha = 190
         c.drawText(info[i].first, w * 0.08f, y, p)
@@ -70,6 +83,6 @@ fun drawSystemScreen(c: Canvas, p: Paint, w: Float, h: Float, info: List<Pair<St
     }
     p.textAlign = Paint.Align.CENTER
     p.alpha = 160
-    p.textSize = h * 0.04f
-    c.drawText("Swipe right to go back", w / 2, h * 0.96f, p)
+    p.textSize = h * 0.035f
+    c.drawText("Swipe right to go back", w / 2, h * 0.97f, p)
 }
