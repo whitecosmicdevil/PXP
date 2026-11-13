@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.pxp.player"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.pxp.player"
@@ -13,6 +13,16 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
+
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     compileOptions {
@@ -22,4 +32,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    implementation("com.github.swordfish90:libretrodroid:0.13.2")
 }
