@@ -20,7 +20,7 @@ import java.io.IOException
 
 class GameActivity : ComponentActivity() {
     private lateinit var root: FrameLayout
-    private lateinit var status: TextView
+    private lateinit var loading: LoadingView
     private var retro: GLRetroView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,40 +32,48 @@ class GameActivity : ComponentActivity() {
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
 
+        val uriStr = intent.getStringExtra("uri")
+        val name = intent.getStringExtra("name") ?: "game.iso"
+
         root = FrameLayout(this)
         root.setBackgroundColor(Color.BLACK)
-        status = TextView(this)
-        status.setTextColor(Color.WHITE)
-        status.textSize = 22f
-        status.gravity = Gravity.CENTER
+        loading = LoadingView(this, name)
         root.addView(
-            status,
+            loading,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
         setContentView(root)
 
-        val uriStr = intent.getStringExtra("uri")
-        val name = intent.getStringExtra("name") ?: "game.iso"
         if (uriStr == null) {
             fail("No game selected.\n(PXP-9201)")
             return
         }
-        status.text = "Now loading..."
         Thread { prepare(Uri.parse(uriStr), name) }.start()
+    }
+
+    private fun setStatus(label: String, progress: Float) {
+        runOnUiThread {
+            loading.label = label
+            loading.progress = progress
+        }
     }
 
     private fun fail(msg: String) {
         runOnUiThread {
             root.removeAllViews()
+            val tv = TextView(this)
+            tv.setTextColor(Color.WHITE)
+            tv.textSize = 22f
+            tv.gravity = Gravity.CENTER
+            tv.text = msg + "\n\nTap to go back"
             root.addView(
-                status,
+                tv,
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
-            status.text = msg + "\n\nTap to go back"
             root.setOnClickListener { finish() }
         }
     }
@@ -95,7 +103,7 @@ class GameActivity : ComponentActivity() {
         if (marker.exists()) return
         val top = assets.list("PPSSPP")
         if (top == null || top.isEmpty()) return
-        runOnUiThread { status.text = "Preparing system files..." }
+        setStatus("Preparing system files...", -1f)
         copyAssetDir("PPSSPP", File(system, "PPSSPP"))
         marker.parentFile?.mkdirs()
         marker.writeText("ok")
@@ -117,6 +125,7 @@ class GameActivity : ComponentActivity() {
     private fun copyGame(uri: Uri, target: File, total: Long) {
         val tmp = File(target.path + ".part")
         val input = contentResolver.openInputStream(uri) ?: throw IOException("open failed")
+        setStatus("Copying game...", if (total > 0) 0f else -1f)
         input.use { src ->
             FileOutputStream(tmp).use { out ->
                 val buf = ByteArray(1 shl 20)
@@ -131,7 +140,7 @@ class GameActivity : ComponentActivity() {
                         val pct = (done * 100 / total).toInt()
                         if (pct != lastPct) {
                             lastPct = pct
-                            runOnUiThread { status.text = "Now loading...\n$pct%" }
+                            setStatus("Copying game...", pct / 100f)
                         }
                     }
                 }
@@ -141,8 +150,18 @@ class GameActivity : ComponentActivity() {
         tmp.renameTo(target)
     }
 
+    private fun handlePad(view: GLRetroView, code: Int, down: Boolean) {
+        if (code == KEY_FAST) {
+            view.frameSpeed = if (down) 4 else 1
+        } else {
+            view.sendKeyEvent(if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code)
+        }
+    }
+
     private fun startEngine(game: File) {
         try {
+            loading.label = "Starting game..."
+            loading.progress = 1f
             val data = GLRetroViewData(this)
             data.coreFilePath = "libppsspp_libretro_android.so"
             data.gameFilePath = game.absolutePath
@@ -151,22 +170,26 @@ class GameActivity : ComponentActivity() {
             val view = GLRetroView(this, data)
             lifecycle.addObserver(view)
             retro = view
-            root.removeAllViews()
             root.addView(
                 view,
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
-            val pad = PadView(this) { code, down ->
-                view.sendKeyEvent(if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, code)
-            }
+            val pad = PadView(this) { code, down -> handlePad(view, code, down) }
             root.addView(
                 pad,
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
+            loading.bringToFront()
+            loading.animate()
+                .alpha(0f)
+                .setDuration(600)
+                .setStartDelay(1800)
+                .withEndAction { root.removeView(loading) }
+                .start()
         } catch (e: Exception) {
             fail("Could not start the game engine.\n(PXP-9203) " + e.javaClass.simpleName)
         }
@@ -178,6 +201,11 @@ class GameActivity : ComponentActivity() {
         val isPad = (e.source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
             (e.source and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
         if (view != null && isPad && code != KeyEvent.KEYCODE_BACK) {
+            if (code == KeyEvent.KEYCODE_BUTTON_R2) {
+                if (e.action == KeyEvent.ACTION_DOWN) handlePad(view, KEY_FAST, true)
+                if (e.action == KeyEvent.ACTION_UP) handlePad(view, KEY_FAST, false)
+                return true
+            }
             if (e.repeatCount == 0 &&
                 (e.action == KeyEvent.ACTION_DOWN || e.action == KeyEvent.ACTION_UP)
             ) {
