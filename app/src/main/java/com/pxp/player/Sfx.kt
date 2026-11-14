@@ -13,16 +13,29 @@ data class Note(val freq: Double, val startMs: Int, val durMs: Int, val vol: Dou
 object Sfx {
     private const val SR = 44100
     var style = 0
+    private var step = 0
+    private val scale = doubleArrayOf(523.3, 587.3, 659.3, 784.0, 880.0)
 
     fun click() {
-        if (style == 0) {
-            play(listOf(Note(1500.0, 0, 60)), 0.15)
-        } else {
-            play(listOf(Note(2200.0, 0, 40), Note(1760.0, 45, 60)), 0.14)
+        when (style) {
+            0 -> play(listOf(Note(1500.0, 0, 60)), 0.15)
+            1 -> play(listOf(Note(2200.0, 0, 40), Note(1760.0, 45, 60)), 0.14)
+            2 -> play(listOf(Note(740.0, 0, 120), Note(1480.0, 0, 70, 0.25)), 0.13)
+            else -> {
+                val f = scale[step % scale.size]
+                step++
+                play(listOf(Note(f, 0, 450), Note(f / 2.0, 0, 320, 0.25)), 0.14)
+            }
         }
     }
 
-    fun ok() = play(listOf(Note(880.0, 0, 120), Note(1320.0, 70, 200)), 0.2)
+    fun ok() {
+        if (style == 3) {
+            play(listOf(Note(659.3, 0, 320), Note(987.8, 90, 520, 0.8)), 0.16)
+        } else {
+            play(listOf(Note(880.0, 0, 120), Note(1320.0, 70, 200)), 0.2)
+        }
+    }
 
     fun egg() = play(
         listOf(
@@ -74,10 +87,10 @@ object Sfx {
                 }
                 var peak = 0.0
                 for (v in mix) peak = maxOf(peak, abs(v))
-                val scale = if (peak > 0.0) master / peak else 0.0
+                val scaleFactor = if (peak > 0.0) master / peak else 0.0
                 val buf = ShortArray(total)
                 for (i in 0 until total) {
-                    buf[i] = (mix[i] * scale * 32767).toInt().toShort()
+                    buf[i] = (mix[i] * scaleFactor * 32767).toInt().toShort()
                 }
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
