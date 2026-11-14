@@ -367,17 +367,16 @@ class PxpView(ctx: Context) : View(ctx) {
         val list = items[cat]
         for (j in list.indices) {
             val d = j - itemAnim
+            val fade = if (d < 0f) (1f + d).coerceIn(0f, 1f) else 1f
+            if (fade <= 0.01f) continue
             val y = cy + h * 0.27f + d * h * 0.14f
             val sel = (1f - abs(d)).coerceIn(0f, 1f)
             val s = h * 0.075f * (1f + 0.25f * sel)
-            col(Color.WHITE, (0.35f + 0.65f * sel) * xA)
-            c.drawRoundRect(
-                RectF(selX - s / 2, y - s / 2, selX + s / 2, y + s / 2),
-                s * 0.2f, s * 0.2f, paint
-            )
+            col(Color.WHITE, (0.35f + 0.65f * sel) * xA * fade)
+            drawItemIcon(c, paint, list[j], selX, y, s)
             paint.textAlign = Paint.Align.LEFT
             paint.textSize = h * (0.05f + 0.012f * sel)
-            col(Color.WHITE, (0.5f + 0.5f * sel) * xA)
+            col(Color.WHITE, (0.5f + 0.5f * sel) * xA * fade)
             c.drawText(list[j], selX + s * 0.8f, y + h * 0.018f, paint)
         }
 
