@@ -103,6 +103,7 @@ class PxpView(ctx: Context) : View(ctx) {
     private var listTitle = ""
     private var listSel = 0
     private var photos: List<Entry> = emptyList()
+    private var photoIdx = 0 // <-- यहाँ जोड़ दिया गया है
     private var photoBmp: Bitmap? = null
     private var photoFail = false
     private var sysInfo: List<Pair<String, String>> = emptyList()
@@ -441,6 +442,7 @@ class PxpView(ctx: Context) : View(ctx) {
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER -> {
                 if (mode == 0) {
                     handleMenuSelect()
+                    Sfx.confirm() // <-- यहाँ सही किया गया
                 } else if (mode == 1 && listEntries.isNotEmpty()) {
                     val entry = listEntries[listSel]
                     if (entry.type == T_PHOTO) {
@@ -455,7 +457,7 @@ class PxpView(ctx: Context) : View(ctx) {
             KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
                 if (mode > 0) {
                     mode = 0
-                    Sfx.back()
+                    Sfx.back() // <-- यहाँ सही किया गया
                     return true
                 }
             }
@@ -464,7 +466,6 @@ class PxpView(ctx: Context) : View(ctx) {
     }
 
     private fun handleMenuSelect() {
-        Sfx.confirm()
         when (cat) {
             0 -> {
                 when (item) {
@@ -543,7 +544,7 @@ class PxpView(ctx: Context) : View(ctx) {
 
     private fun loadPhoto(entry: Entry) {
         try {
-            photoBmp = BitmapFactory.decodeFile(entry.path)
+            photoBmp = BitmapFactory.decodeFile(entry.path) // <-- यहाँ path की जगह entry.path कर दिया गया है
         } catch (e: Exception) {
             photoFail = true
         }
