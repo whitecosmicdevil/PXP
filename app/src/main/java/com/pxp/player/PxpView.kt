@@ -13,13 +13,9 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
-import android.media.ExifInterface
-import android.net.Uri
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.View
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
@@ -97,8 +93,6 @@ class PxpView(ctx: Context) : View(ctx) {
     private var catAnim = 4f
     private var itemAnim = 0f
     private var chimed = false
-    private var downX = 0f
-    private var downY = 0f
     private var msg: String? = null
     private var msgUntil = 0L
 
@@ -109,10 +103,8 @@ class PxpView(ctx: Context) : View(ctx) {
     private var listTitle = ""
     private var listSel = 0
     private var photos: List<Entry> = emptyList()
-    private var photoIdx = 0
     private var photoBmp: Bitmap? = null
     private var photoFail = false
-    private var loadToken = 0
     private var sysInfo: List<Pair<String, String>> = emptyList()
     private var eggBuf = ""
     private var eggStart = 0L
@@ -170,18 +162,6 @@ class PxpView(ctx: Context) : View(ctx) {
         eggStart = System.nanoTime()
         eggTaps = 0
         Sfx.egg()
-    }
-
-    private fun trackEgg(ch: Char): Boolean {
-        if (mode != 0) return false
-        eggBuf = (eggBuf + ch).takeLast(8)
-        if (eggBuf != "UUDDLRLR") return false
-        eggBuf = ""
-        devUnlocked = true
-        prefs.edit().putBoolean("dev", true).apply()
-        applyDev()
-        openCredits()
-        return true
     }
 
     fun setLibrary(list: List<Entry>) {
@@ -348,3 +328,224 @@ class PxpView(ctx: Context) : View(ctx) {
                     x, cy, size * 1.1f,
                     Color.argb((90 * sel * xA).toInt(), 255, 255, 255),
                     Color.argb(0, 255, 255, 255),
+                    Shader.TileMode.CLAMP
+                )
+                c.drawCircle(x, cy, size * 1.1f, paint)
+                paint.shader = null
+            }
+            paint.textSize = size * 0.45f
+            paint.textAlign = Paint.Align.CENTER
+            col(Color.WHITE, (0.3f + 0.7f * sel) * xA)
+            c.drawText(cats[i], x, cy + size * 0.15f, paint)
+        }
+
+        val currItems = items[cat.coerceIn(0, items.size - 1)]
+        val itemStartY = h * 0.55f
+        val itemGap = h * 0.08f
+        for (j in currItems.indices) {
+            val jd = j - itemAnim
+            val iy = itemStartY + jd * itemGap
+            if (iy > h * 0.4f && iy < h * 0.95f) {
+                val isel = (j == item)
+                paint.textSize = h * 0.045f
+                paint.textAlign = Paint.Align.LEFT
+                col(if (isel) Color.YELLOW else Color.WHITE, xA)
+                c.drawText(currItems[j], w * 0.15f, iy, paint)
+            }
+        }
+    }
+
+    private fun drawList(c: Canvas, w: Float, h: Float) {
+        paint.color = Color.argb(220, 0, 0, 0)
+        c.drawRect(0f, 0f, w, h, paint)
+        paint.textSize = h * 0.05f
+        col(Color.WHITE, 1f)
+        c.drawText(listTitle, w * 0.1f, h * 0.15f, paint)
+
+        val startY = h * 0.25f
+        val gap = h * 0.07f
+        for (i in listEntries.indices) {
+            val y = startY + i * gap
+            if (y > h * 0.9f) break
+            val isel = (i == listSel)
+            paint.textSize = h * 0.04f
+            col(if (isel) Color.YELLOW else Color.WHITE, 1f)
+            c.drawText(listEntries[i].name, w * 0.15f, y, paint)
+        }
+    }
+
+    private fun drawPhoto(c: Canvas, w: Float, h: Float) {
+        paint.color = Color.BLACK
+        c.drawRect(0f, 0f, w, h, paint)
+        photoBmp?.let { bmp ->
+            val matrix = Matrix()
+            val scale = minOf(w / bmp.width, h / bmp.height)
+            matrix.setScale(scale, scale)
+            matrix.postTranslate((w - bmp.width * scale) / 2f, (h - bmp.height * scale) / 2f)
+            c.drawBitmap(bmp, matrix, paint)
+        }
+    }
+
+    private fun drawMessage(c: Canvas, w: Float, h: Float) {
+        val m = msg ?: return
+        if (System.currentTimeMillis() > msgUntil) {
+            msg = null
+            return
+        }
+        paint.color = Color.argb(200, 20, 20, 20)
+        val rect = RectF(w * 0.1f, h * 0.8f, w * 0.9f, h * 0.95f)
+        c.drawRoundRect(rect, 20f, 20f, paint)
+        paint.textSize = h * 0.035f
+        col(Color.WHITE, 1f)
+        paint.textAlign = Paint.Align.CENTER
+        c.drawText(m, w / 2f, h * 0.88f, paint)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (!ready()) return super.onKeyDown(keyCode, event)
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (mode == 0) {
+                    cat = (cat - 1 + cats.size) % cats.size
+                    item = 0
+                    Sfx.click()
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (mode == 0) {
+                    cat = (cat + 1) % cats.size
+                    item = 0
+                    Sfx.click()
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (mode == 0) {
+                    val curr = items[cat]
+                    item = (item - 1 + curr.size) % curr.size
+                    Sfx.click()
+                } else if (mode == 1) {
+                    listSel = (listSel - 1 + listEntries.size) % listEntries.size
+                    Sfx.click()
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (mode == 0) {
+                    val curr = items[cat]
+                    item = (item + 1) % curr.size
+                    Sfx.click()
+                } else if (mode == 1) {
+                    listSel = (listSel + 1) % listEntries.size
+                    Sfx.click()
+                }
+            }
+            KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER -> {
+                if (mode == 0) {
+                    handleMenuSelect()
+                } else if (mode == 1 && listEntries.isNotEmpty()) {
+                    val entry = listEntries[listSel]
+                    if (entry.type == T_PHOTO) {
+                        mode = 2
+                        photoIdx = listSel
+                        loadPhoto(entry)
+                    } else {
+                        onOpen?.invoke(entry)
+                    }
+                }
+            }
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> {
+                if (mode > 0) {
+                    mode = 0
+                    Sfx.back()
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun handleMenuSelect() {
+        Sfx.confirm()
+        when (cat) {
+            0 -> {
+                when (item) {
+                    0 -> cycleZone()
+                    1 -> {
+                        mode = 4
+                        sysInfo = listOf(
+                            "Device" to android.os.Build.MODEL,
+                            "Android" to android.os.Build.VERSION.RELEASE,
+                            "App Version" to "1.0.0"
+                        )
+                    }
+                    2 -> cycleTheme()
+                    3 -> cycleSound()
+                    4 -> openCredits()
+                }
+            }
+            1 -> {
+                if (item == 0) onPickFolder?.invoke()
+                else if (item == 1) {
+                    photos = of(T_PHOTO)
+                    if (photos.isNotEmpty()) {
+                        mode = 1
+                        listEntries = photos
+                        listTitle = "Photos"
+                        listSel = 0
+                    } else showMsg("No photos found")
+                }
+            }
+            2 -> {
+                if (item == 0) onPickFolder?.invoke()
+                else {
+                    val m = of(T_MUSIC)
+                    if (m.isNotEmpty()) {
+                        mode = 1
+                        listEntries = m
+                        listTitle = "Music"
+                        listSel = 0
+                    } else showMsg("No music found")
+                }
+            }
+            3 -> {
+                if (item == 0) onPickFolder?.invoke()
+                else {
+                    val v = of(T_VIDEO)
+                    if (v.isNotEmpty()) {
+                        mode = 1
+                        listEntries = v
+                        listTitle = "Video"
+                        listSel = 0
+                    } else showMsg("No videos found")
+                }
+            }
+            4 -> {
+                if (item == 0) onPickFolder?.invoke()
+                else {
+                    val g = of(T_GAME)
+                    if (g.isNotEmpty()) {
+                        mode = 1
+                        listEntries = g
+                        listTitle = "Games"
+                        listSel = 0
+                    } else showMsg("No games found")
+                }
+            }
+            5 -> {
+                if (item == 0) {
+                    mode = 3
+                    updater.check()
+                } else if (item == 1) {
+                    onOpenWeb?.invoke("https://google.com")
+                }
+            }
+        }
+    }
+
+    private fun loadPhoto(entry: Entry) {
+        try {
+            photoBmp = BitmapFactory.decodeFile(entry.path)
+        } catch (e: Exception) {
+            photoFail = true
+        }
+    }
+}
