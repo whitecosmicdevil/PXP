@@ -20,9 +20,18 @@ jobs:
       - name: Download PPSSPP assets
         run: |
           mkdir -p app/src/main/assets/PPSSPP tmp_assets
-          curl -fL -o assets.zip https://github.com/orbea/libretro-ppsspp-assets/archive/refs/heads/master.zip
-          unzip -q -o assets.zip -d tmp_assets
-          cp -r tmp_assets/*/* app/src/main/assets/PPSSPP/
+          if curl -fL -o assets.zip https://buildbot.libretro.com/assets/system/PPSSPP.zip; then
+            unzip -q -o assets.zip -d tmp_assets
+            if [ -d tmp_assets/PPSSPP ]; then
+              cp -r tmp_assets/PPSSPP/. app/src/main/assets/PPSSPP/
+            else
+              cp -r tmp_assets/. app/src/main/assets/PPSSPP/
+            fi
+          else
+            curl -fL -o ppsspp_src.zip https://github.com/hrydgard/ppsspp/archive/refs/heads/master.zip
+            unzip -q -o ppsspp_src.zip 'ppsspp-master/assets/*' -d tmp_src
+            cp -r tmp_src/ppsspp-master/assets/. app/src/main/assets/PPSSPP/
+          fi
           ls app/src/main/assets/PPSSPP | head -n 30
       - uses: actions/setup-java@v4
         with:
